@@ -19,6 +19,42 @@
       </header>
 
       <main class="main-content">
+        <!-- Statistics Dashboard Section -->
+        <section class="card">
+          <header class="card-header">
+            <h2>Statistics Dashboard</h2>
+            <p>Overview of tracking parameters stripped by NeatURL.</p>
+          </header>
+          <div class="card-body">
+            <div class="stats-grid">
+              <div class="stat-box">
+                <span class="stat-value" id="stat-total">0</span>
+                <span class="stat-label">Total Blocked</span>
+              </div>
+              <div class="stat-box">
+                <span class="stat-value" id="stat-today">0</span>
+                <span class="stat-label">Today</span>
+              </div>
+              <div class="stat-box">
+                <span class="stat-value" id="stat-week">0</span>
+                <span class="stat-label">Past 7 Days</span>
+              </div>
+            </div>
+            <div style="margin-top: 20px; text-align: right">
+              <button
+                id="btn-reset-stats"
+                class="btn btn-secondary btn-sm"
+                style="
+                  color: var(--danger-text);
+                  border-color: var(--danger-text);
+                "
+              >
+                Reset Statistics
+              </button>
+            </div>
+          </div>
+        </section>
+
         <!-- Allowlist Section -->
         <section class="card">
           <header class="card-header">

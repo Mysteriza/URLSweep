@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "NeatURL",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Cleanly remove tracking parameters from URLs automatically. Stays up to date with ClearURLs.",
   "icons": {
     "16": "icons/icon16.png",
@@ -11,6 +11,7 @@
   "permissions": [
     "declarativeNetRequest",
     "declarativeNetRequestWithHostAccess",
+    "webRequest",
     "storage",
     "tabs",
     "alarms"

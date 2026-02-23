@@ -55,9 +55,8 @@ function cleanCurrentUrl() {
       // The hash string includes the '#' e.g. '#_rdc=1&_rdr'
       const hashContent = url.hash.substring(1);
 
-      // We parse it temporarily as URLSearchParams
       const hashParams = new URLSearchParams(hashContent);
-      const hashParamsToDelete = [];
+      let hashParamsToDelete = [];
 
       hashParams.forEach((value, key) => {
         if (trackingParams.has(key)) hashParamsToDelete.push(key);
@@ -73,6 +72,19 @@ function cleanCurrentUrl() {
     if (changed) {
       // Use replaceState to update the URL bar without reloading or adding to history
       window.history.replaceState(null, "", url.toString());
+
+      const totalRemoved =
+        paramsToDelete.length +
+        (typeof hashParamsToDelete !== "undefined"
+          ? hashParamsToDelete.length
+          : 0);
+      if (totalRemoved > 0) {
+        chrome.runtime.sendMessage({
+          action: "recordStats",
+          domain: window.location.hostname,
+          count: totalRemoved,
+        });
+      }
     }
   } catch (e) {
     // Ignore invalid URLs

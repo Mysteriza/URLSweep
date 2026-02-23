@@ -171,12 +171,17 @@ async function updateAllRules(forceFetch = false) {
   );
 }
 
-// Ensure settings exist and update rules on Start or Install
+// Ensure settings and stats exist on Install/Start
 chrome.runtime.onInstalled.addListener(async () => {
-  const data = await chrome.storage.local.get(["allowlist", "customTrackers"]);
+  const data = await chrome.storage.local.get([
+    "allowlist",
+    "customTrackers",
+    "stats",
+  ]);
   if (!data.allowlist) await chrome.storage.local.set({ allowlist: [] });
   if (!data.customTrackers)
     await chrome.storage.local.set({ customTrackers: [] });
+  if (!data.stats) await chrome.storage.local.set({ stats: {} });
 
   // Create alarm to refresh upstream lists daily
   chrome.alarms.create("refreshUpstream", { periodInMinutes: 1440 }); // 24 hours
@@ -205,7 +210,68 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
   }
 });
 
-// Serve state to content scripts (for SPA URL bar rewriting)
+// --- Statistics Engine ---
+
+/**
+ * Log stripped parameters to storage grouped by date and domain.
+ * Format: { "YYYY-MM-DD": { "example.com": 5, "total": 12 }, "total": 200 }
+ */
+async function recordStats(domain, count) {
+  if (!domain || count <= 0) return;
+
+  // Use local timezone date string
+  const dateStr = new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD format
+
+  const data = await chrome.storage.local.get("stats");
+  const stats = data.stats || {};
+
+  // Init Global
+  if (!stats.total) stats.total = 0;
+  stats.total += count;
+
+  // Init Date
+  if (!stats[dateStr]) stats[dateStr] = { total: 0 };
+  stats[dateStr].total += count;
+
+  // Init Domain for Date
+  if (!stats[dateStr][domain]) stats[dateStr][domain] = 0;
+  stats[dateStr][domain] += count;
+
+  await chrome.storage.local.set({ stats });
+}
+
+// 1. Listen to declarativeNetRequest stripped redirects
+chrome.webRequest.onBeforeRedirect.addListener(
+  (details) => {
+    // We only care if the extension caused the redirect (DNR action)
+    // Unfortunately Chrome doesn't explicitly flag DNR redirects in webRequest,
+    // but we can infer it if the redirectUrl is simply the stripped version of the original url.
+    try {
+      const origUrl = new URL(details.url);
+      const redirUrl = new URL(details.redirectUrl);
+
+      // If host and pathname match, it's highly likely our parameter strip
+      if (
+        origUrl.hostname === redirUrl.hostname &&
+        origUrl.pathname === redirUrl.pathname
+      ) {
+        // Calculate how many parameters were removed
+        const origParams = Array.from(origUrl.searchParams.keys());
+        const redirParams = Array.from(redirUrl.searchParams.keys());
+
+        const removedCount = origParams.length - redirParams.length;
+        if (removedCount > 0) {
+          recordStats(origUrl.hostname, removedCount);
+        }
+      }
+    } catch (e) {
+      // Ignore
+    }
+  },
+  { urls: ["<all_urls>"] },
+);
+
+// 2. Serve state and handle explicit stats from content scripts
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "getState") {
     chrome.storage.local
@@ -231,5 +297,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         });
       });
     return true; // Keep message channel open for async response
+  }
+
+  if (request.action === "recordStats") {
+    recordStats(request.domain, request.count);
+    return true;
   }
 });

@@ -17,8 +17,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   const template = document.getElementById("list-item-template");
 
   // Load Initial Data
-  const { allowlist = [], customTrackers = [] } =
-    await chrome.storage.local.get(["allowlist", "customTrackers"]);
+  const {
+    allowlist = [],
+    customTrackers = [],
+    stats = {},
+  } = await chrome.storage.local.get(["allowlist", "customTrackers", "stats"]);
 
   let currentAllowlist = [...allowlist];
   let currentCustomTrackers = [...customTrackers];
@@ -55,6 +58,31 @@ document.addEventListener("DOMContentLoaded", async () => {
         customParamsListEl.appendChild(row);
       });
     }
+  };
+
+  const renderStats = () => {
+    const elTotal = document.getElementById("stat-total");
+    const elToday = document.getElementById("stat-today");
+    const elWeek = document.getElementById("stat-week");
+
+    // Total
+    elTotal.textContent = stats.total || 0;
+
+    // Today
+    const todayStr = new Date().toLocaleDateString("en-CA");
+    elToday.textContent = stats[todayStr] ? stats[todayStr].total : 0;
+
+    // Past 7 Days
+    let weekTotal = 0;
+    for (let i = 0; i < 7; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const dStr = d.toLocaleDateString("en-CA");
+      if (stats[dStr]) {
+        weekTotal += stats[dStr].total;
+      }
+    }
+    elWeek.textContent = weekTotal;
   };
 
   const saveState = async () => {
@@ -157,6 +185,21 @@ document.addEventListener("DOMContentLoaded", async () => {
     reader.readAsText(file);
   });
 
+  // Reset Stats
+  document
+    .getElementById("btn-reset-stats")
+    .addEventListener("click", async () => {
+      if (
+        confirm(
+          "Are you sure you want to reset all tracking statistics? This cannot be undone.",
+        )
+      ) {
+        await chrome.storage.local.set({ stats: { total: 0 } });
+        window.location.reload();
+      }
+    });
+
   // Initial render
   renderLists();
+  renderStats();
 });

@@ -1,0 +1,39 @@
+name: Auto Build and Release
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Extract Version
+        id: version
+        run: |
+          # Ambil versi dari manifest.json pake jq
+          VERSION=$(jq -r '.version' manifest.json)
+          echo "VERSION=v$VERSION" >> $GITHUB_ENV
+
+      - name: Build Extension ZIP
+        run: |
+          mkdir dist
+          zip -r dist/NeatURL.zip icons/ options/ popup/ background.js content.js manifest.json README.md
+
+      - name: Auto-Publish Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.VERSION }}
+          name: NeatURL ${{ env.VERSION }}
+          files: dist/NeatURL.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

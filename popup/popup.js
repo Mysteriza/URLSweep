@@ -37,10 +37,26 @@ document.addEventListener("DOMContentLoaded", async () => {
   const btnToggleGlobal = document.getElementById("btn-toggle-global");
 
   // Storage states
-  const { allowlist = [], isGloballyDisabled = false } =
-    await chrome.storage.local.get(["allowlist", "isGloballyDisabled"]);
+  const {
+    allowlist = [],
+    isGloballyDisabled = false,
+    stats = {},
+  } = await chrome.storage.local.get([
+    "allowlist",
+    "isGloballyDisabled",
+    "stats",
+  ]);
   let isAllowed = allowlist.includes(currentDomain);
   let globalDisabled = isGloballyDisabled;
+
+  // Calculate stats for current site
+  let domainTotal = 0;
+  for (const dateKey in stats) {
+    if (dateKey !== "total" && stats[dateKey][currentDomain]) {
+      domainTotal += stats[dateKey][currentDomain];
+    }
+  }
+  document.getElementById("site-stats-counter").textContent = domainTotal;
 
   const renderState = () => {
     if (globalDisabled) {

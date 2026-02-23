@@ -9,20 +9,19 @@ NeatURL is a minimalist, privacy-first, zero-overhead Chrome Extension that rigo
 - **Allowlist & Custom Rules**: Selectively disable filtering for specific websites or strip entirely custom URL trackers manually.
 - **Backup & Restore**: Safely save and reload your custom configurations.
 
-[![Download ZIP](https://img.shields.io/badge/Download-ZIP-blue?style=for-the-badge&logo=github)](https://github.com/Mysteriza/NeatURLs/releases/download/v1.0.1/NeatURL.zip)
-
 ## Installation
 
 This extension is currently available for manual installation:
 
-### Method 1: Download ZIP (Recommended)
+### Method 1: Download from Releases (Recommended)
 
-1. Download the latest `NeatURL.zip` from the [Releases](https://github.com/Mysteriza/NeatURLs/releases/tag/v1.0.1) page.
-2. Extract the ZIP file to a permanent folder on your computer.
-3. Open Chrome and navigate to `chrome://extensions/`.
-4. Enable **Developer mode** (toggle in the top-right corner).
-5. Click on the **Load unpacked** button.
-6. Select the extracted folder.
+1. Go to the [Releases](https://github.com/Mysteriza/NeatURLs/releases) page.
+2. Download the `NeatURL.zip` file attached to the latest release.
+3. Extract the ZIP file to a permanent folder on your computer.
+4. Open Chrome and navigate to `chrome://extensions/`.
+5. Enable **Developer mode** (toggle in the top-right corner).
+6. Click on the **Load unpacked** button.
+7. Select the extracted folder.
 
 ### Method 2: Clone Repository
 
