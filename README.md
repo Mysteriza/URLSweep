@@ -9,15 +9,51 @@ NeatURL is a minimalist, privacy-first, zero-overhead Chrome Extension that rigo
 - **Allowlist & Custom Rules**: Selectively disable filtering for specific websites or strip entirely custom URL trackers manually.
 - **Backup & Restore**: Safely save and reload your custom configurations.
 
+[![Download ZIP](https://img.shields.io/badge/Download-ZIP-blue?style=for-the-badge&logo=github)](https://github.com/Mysteriza/NeatURLs/releases/download/v1.0.1/NeatURL.zip)
+
 ## Installation
 
-This extension is not yet published in the Chrome Web Store. You need to install it manually as an "unpacked" extension:
+This extension is currently available for manual installation:
 
-1. Open Chrome and navigate to `chrome://extensions/`.
-2. Enable **Developer mode** (toggle in the top-right corner).
-3. Click on the **Load unpacked** button.
-4. Select the directory (`CleanURLs` or your renamed folder) where these extension files reside.
-5. The extension is now active!
+### Method 1: Download ZIP (Recommended)
+
+1. Download the latest `NeatURL.zip` from the [Releases](https://github.com/Mysteriza/NeatURLs/releases/tag/v1.0.1) page.
+2. Extract the ZIP file to a permanent folder on your computer.
+3. Open Chrome and navigate to `chrome://extensions/`.
+4. Enable **Developer mode** (toggle in the top-right corner).
+5. Click on the **Load unpacked** button.
+6. Select the extracted folder.
+
+### Method 2: Clone Repository
+
+For developers or advanced users:
+
+1. Clone this repository: `git clone https://github.com/Mysteriza/NeatURLs.git`
+2. Follow steps 3-6 from Method 1, selecting the cloned directory.
+
+## How It Works (Examples)
+
+NeatURL instantly strips privacy-invading tracking parameters while keeping the actual destination intact.
+
+**Example 1: Facebook Outbound Link**
+
+- ❌ **Dirty**: `https://www.example.com/article?fbclid=IwAR3...`
+- ✅ **Neat**: `https://www.example.com/article`
+
+**Example 2: Google Search Result**
+
+- ❌ **Dirty**: `https://www.example.com/?gclid=EAIaIQob...`
+- ✅ **Neat**: `https://www.example.com/`
+
+**Example 3: Newsletter Campaign**
+
+- ❌ **Dirty**: `https://www.example.com/sale?utm_source=newsletter&utm_medium=email&utm_campaign=spring_sale`
+- ✅ **Neat**: `https://www.example.com/sale`
+
+**Example 4: Facebook Marketplace**
+
+- ❌ **Dirty**: `https://web.facebook.com/marketplace/item/12345/?referral_code=marketplace_top_picks&referral_story_type=top_picks`
+- ✅ **Neat**: `https://web.facebook.com/marketplace/item/12345/`
 
 ## Usage
 
