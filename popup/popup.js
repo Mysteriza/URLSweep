@@ -22,9 +22,21 @@ document.addEventListener("DOMContentLoaded", async () => {
     statusTextEl.textContent = "URLSweep does not run here";
     statusIcon.className = "status-circle";
     statusIcon.innerHTML = iconCross;
-    btnToggle.disabled = true;
-    btnToggle.style.opacity = "0.5";
-    btnToggle.style.cursor = "not-allowed";
+
+    const btnToggleSite = document.getElementById("btn-toggle-site");
+    const btnToggleGlobal = document.getElementById("btn-toggle-global");
+
+    if (btnToggleSite) {
+      btnToggleSite.disabled = true;
+      btnToggleSite.style.opacity = "0.5";
+      btnToggleSite.style.cursor = "not-allowed";
+    }
+
+    if (btnToggleGlobal) {
+      btnToggleGlobal.disabled = true;
+      btnToggleGlobal.style.opacity = "0.5";
+      btnToggleGlobal.style.cursor = "not-allowed";
+    }
     return;
   }
 

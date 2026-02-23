@@ -183,6 +183,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     const backupData = {
       allowlist: currentAllowlist,
       customTrackers: currentCustomTrackers,
+      stats: stats,
       exportedAt: new Date().toISOString(),
     };
 
@@ -219,6 +220,31 @@ document.addEventListener("DOMContentLoaded", async () => {
             ]),
           ];
         }
+
+        // Merge stats if existing
+        if (importedData.stats && typeof importedData.stats === "object") {
+          let updatedStats = { ...stats };
+          for (const key in importedData.stats) {
+            if (typeof importedData.stats[key] === "number") {
+              // Primitive sum like "total" or "inspected"
+              updatedStats[key] =
+                (updatedStats[key] || 0) + importedData.stats[key];
+            } else if (typeof importedData.stats[key] === "object") {
+              // Deep merge for date objects
+              if (!updatedStats[key]) updatedStats[key] = {};
+              for (const subKey in importedData.stats[key]) {
+                updatedStats[key][subKey] =
+                  (updatedStats[key][subKey] || 0) +
+                  importedData.stats[key][subKey];
+              }
+            }
+          }
+          await chrome.storage.local.set({ stats: updatedStats });
+          // Must re-pull the global stats reference before updating view
+          const freshData = await chrome.storage.local.get("stats");
+          Object.assign(stats, freshData.stats);
+        }
+
         await saveState();
         alert("Backup successfully imported!");
       } catch (error) {

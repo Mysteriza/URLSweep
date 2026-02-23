@@ -144,19 +144,7 @@ async function updateAllRules(forceFetch = false) {
       action: { type: "allowAllRequests" },
       condition: {
         requestDomains: [domain],
-        resourceTypes: [
-          "main_frame",
-          "sub_frame",
-          "xmlhttprequest",
-          "ping",
-          "script",
-          "image",
-          "stylesheet",
-          "font",
-          "object",
-          "websocket",
-          "other",
-        ],
+        resourceTypes: ["main_frame", "sub_frame"],
       },
     });
   });
