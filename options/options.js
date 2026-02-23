@@ -16,6 +16,10 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   const template = document.getElementById("list-item-template");
 
+  // Dynamically set version badge
+  const manifest = chrome.runtime.getManifest();
+  document.getElementById("version-badge").textContent = `v${manifest.version}`;
+
   // Load Initial Data
   const {
     allowlist = [],
