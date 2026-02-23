@@ -15,6 +15,8 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Needed to fetch all tags for changelog generation
 
       - name: Extract Version
         id: version
@@ -28,12 +30,29 @@ jobs:
           mkdir dist
           zip -r dist/NeatURL.zip icons/ options/ popup/ background.js content.js manifest.json README.md
 
+      - name: Generate Changelog
+        id: changelog
+        run: |
+          # Get previous tag, or use empty string if this is the first tag
+          PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+
+          if [ -z "$PREV_TAG" ]; then
+            echo "First release, getting all commits."
+            git log --pretty=format:"* %s (%h)" > changelog.txt
+          else
+            echo "Getting commits since $PREV_TAG"
+            git log ${PREV_TAG}..HEAD --pretty=format:"* %s (%h)" > changelog.txt
+          fi
+
+          # Use awk to prepend a header and format it properly
+          echo -e "### Changes in ${{ env.VERSION }}\n\n$(cat changelog.txt)" > release_body.txt
+
       - name: Auto-Publish Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.VERSION }}
           name: NeatURL ${{ env.VERSION }}
+          body_path: release_body.txt
           files: dist/NeatURL.zip
-          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
