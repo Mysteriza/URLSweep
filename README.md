@@ -5,9 +5,14 @@ NeatURL is a minimalist, privacy-first, zero-overhead Chrome Extension that rigo
 ## Features
 
 - **Zero Overhead**: Uses built-in browser network filtering.
-- **Always Up to Date**: Automatically synchronizes with the upstream ClearURLs tracking catalog.
+- **Always Up to Date**: Automatically synchronizes with the upstream [ClearURLs](https://github.com/ClearURLs/Addon) tracking catalog.
 - **Allowlist & Custom Rules**: Selectively disable filtering for specific websites or strip entirely custom URL trackers manually.
 - **Backup & Restore**: Safely save and reload your custom configurations.
+
+## Screenshots
+<img width="396" height="638" alt="23-02-2026_19-45" src="https://github.com/user-attachments/assets/6a057f76-fb4f-4fa8-acd3-0ef6f6802617" />
+<img width="493" height="836" alt="23-02-2026_19-48" src="https://github.com/user-attachments/assets/834dab13-2e75-439a-90b2-d4c2c6bf6036" />
+
 
 ## Installation
 
