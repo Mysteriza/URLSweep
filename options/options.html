@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NeatURL Configuration</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <div class="container">
+      <header class="header">
+        <div class="logo-container">
+          <h1>NeatURL</h1>
+          <span class="badge">v1.0.1</span>
+        </div>
+        <p class="subtitle">
+          Manage exceptions and customize tracking parameters to block.
+        </p>
+      </header>
+
+      <main class="main-content">
+        <!-- Allowlist Section -->
+        <section class="card">
+          <header class="card-header">
+            <h2>Website Allowlist</h2>
+            <p>
+              URLs added here will <strong>not</strong> have their tracking
+              parameters removed.
+            </p>
+          </header>
+          <div class="card-body">
+            <form id="allowlist-form" class="input-group">
+              <input
+                type="text"
+                id="allowlist-input"
+                placeholder="e.g., example.com"
+                required
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <button type="submit" class="btn btn-primary">Add Domain</button>
+            </form>
+            <div class="list-container">
+              <ul id="allowlist" class="item-list"></ul>
+              <p id="allowlist-empty" class="empty-state hidden">
+                No domains allowlisted.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <!-- Custom Parameters Section -->
+        <section class="card">
+          <header class="card-header">
+            <h2>Custom Tracker Parameters</h2>
+            <p>
+              Add custom URL parameters that you want NeatURL to strip from
+              every website.
+            </p>
+          </header>
+          <div class="card-body">
+            <form id="custom-params-form" class="input-group">
+              <input
+                type="text"
+                id="custom-params-input"
+                placeholder="e.g., my_custom_tracker_id"
+                required
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <button type="submit" class="btn btn-primary">
+                Add Parameter
+              </button>
+            </form>
+            <div class="list-container">
+              <ul id="custom-params-list" class="item-list"></ul>
+              <p id="custom-params-empty" class="empty-state hidden">
+                No custom parameters added.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <!-- Backup and Restore Section -->
+        <section class="card">
+          <header class="card-header">
+            <h2>Backup & Restore</h2>
+            <p>
+              Export your allowlist and custom rules to a file, or import from
+              an existing backup.
+            </p>
+          </header>
+          <div class="card-body action-group">
+            <button id="btn-export" class="btn btn-secondary">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              Export Backup
+            </button>
+            <label for="btn-import" class="btn btn-secondary">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
+              Import Backup
+              <input type="file" id="btn-import" accept=".json" hidden />
+            </label>
+          </div>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <p>NeatURL - Privacy First, Zero Overhead.</p>
+      </footer>
+    </div>
+
+    <template id="list-item-template">
+      <li class="list-item">
+        <span class="item-text"></span>
+        <button
+          class="btn-icon btn-delete"
+          aria-label="Remove item"
+          title="Remove"
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </li>
+    </template>
+
+    <script src="options.js"></script>
+  </body>
+</html>

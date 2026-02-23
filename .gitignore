@@ -1,0 +1,23 @@
+# Node dependencies
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# System Files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Extension build outputs (if any are added later)
+dist/
+build/
+*.zip
