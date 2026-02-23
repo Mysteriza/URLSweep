@@ -3,14 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>NeatURL Configuration</title>
+    <title>URLSweep Configuration</title>
     <link rel="stylesheet" href="options.css" />
   </head>
   <body>
     <div class="container">
       <header class="header">
         <div class="logo-container">
-          <h1>NeatURL</h1>
+          <h1>URLSweep</h1>
           <span id="version-badge" class="badge"></span>
         </div>
         <p class="subtitle">
@@ -19,35 +19,94 @@
       </header>
 
       <main class="main-content">
+        <!-- Active Rules Section -->
+        <section class="card">
+          <header
+            class="card-header"
+            style="
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              padding-bottom: 24px;
+            "
+          >
+            <div>
+              <h2 style="margin-bottom: 0">Filter Rules</h2>
+              <p style="margin-top: 4px">
+                Tracking rules are updated daily from upstream.
+              </p>
+            </div>
+            <div style="text-align: right">
+              <div
+                id="stat-updated"
+                style="
+                  font-size: 12px;
+                  color: var(--text-muted);
+                  margin-bottom: 8px;
+                "
+              >
+                Last updated: -
+              </div>
+              <a
+                href="https://rules2.clearurls.xyz/data.minify.json"
+                target="_blank"
+                class="btn btn-secondary btn-sm"
+                style="
+                  padding: 6px 12px;
+                  font-size: 13px;
+                  text-decoration: none;
+                "
+                >View Source</a
+              >
+            </div>
+          </header>
+        </section>
+
         <!-- Statistics Dashboard Section -->
         <section class="card">
           <header class="card-header">
             <h2>Statistics Dashboard</h2>
-            <p>Overview of tracking parameters stripped by NeatURL.</p>
+            <p>Overview of tracking parameters stripped by URLSweep.</p>
           </header>
           <div class="card-body">
-            <div class="stats-grid">
-              <div class="stat-box">
-                <span class="stat-value" id="stat-total">0</span>
-                <span class="stat-label">Total Blocked</span>
-              </div>
-              <div class="stat-box">
-                <span class="stat-value" id="stat-today">0</span>
-                <span class="stat-label">Today</span>
-              </div>
-              <div class="stat-box">
-                <span class="stat-value" id="stat-week">0</span>
-                <span class="stat-label">Past 7 Days</span>
+            <!-- Dynamic Progress Bar -->
+            <div class="stats-progress-container">
+              <div class="stats-progress-track">
+                <div
+                  class="stats-progress-blocked"
+                  id="progress-blocked"
+                  style="width: 0%"
+                ></div>
+                <div
+                  class="stats-progress-elements"
+                  id="progress-elements"
+                  style="width: 100%"
+                ></div>
               </div>
             </div>
-            <div style="margin-top: 20px; text-align: right">
+
+            <!-- Stats Rows -->
+            <div class="stats-list-container">
+              <div class="stats-list-row">
+                <span class="stats-label">Elements</span>
+                <span class="stats-value text-info" id="stat-elements">0</span>
+              </div>
+              <div class="stats-list-row">
+                <span class="stats-label">Blocked</span>
+                <span class="stats-value text-danger" id="stat-blocked">0</span>
+              </div>
+              <div class="stats-list-row">
+                <span class="stats-label">Percentage</span>
+                <span class="stats-value text-success" id="stat-pct"
+                  >0.000%</span
+                >
+              </div>
+            </div>
+
+            <div style="margin-top: 24px; text-align: center">
               <button
                 id="btn-reset-stats"
-                class="btn btn-secondary btn-sm"
-                style="
-                  color: var(--danger-text);
-                  border-color: var(--danger-text);
-                "
+                class="btn btn-secondary btn-sm btn-reset-stats"
               >
                 Reset Statistics
               </button>
@@ -90,20 +149,20 @@
           <header class="card-header">
             <h2>Custom Tracker Parameters</h2>
             <p>
-              Add custom URL parameters that you want NeatURL to strip from
+              Add custom URL parameters that you want URLSweep to strip from
               every website.
             </p>
           </header>
           <div class="card-body">
             <form id="custom-params-form" class="input-group">
-              <input
-                type="text"
+              <textarea
                 id="custom-params-input"
-                placeholder="e.g., my_custom_tracker_id"
+                placeholder="Paste parameters here... (e.g. tracker1, tracker2)"
                 required
                 autocomplete="off"
                 spellcheck="false"
-              />
+                rows="2"
+              ></textarea>
               <button type="submit" class="btn btn-primary">
                 Add Parameter
               </button>
@@ -163,8 +222,27 @@
       </main>
 
       <footer class="footer">
-        <p>NeatURL - Privacy First, Zero Overhead.</p>
+        <p>URLSweep - Privacy First, Zero Overhead.</p>
       </footer>
+    </div>
+
+    <!-- Reset Confirmation Modal -->
+    <div id="reset-modal" class="modal-overlay">
+      <div class="modal-card">
+        <h3>Reset Statistics?</h3>
+        <p>
+          Are you sure you want to reset all tracking statistics? This action
+          cannot be undone and you will lose all historical data.
+        </p>
+        <div class="modal-actions">
+          <button id="btn-modal-cancel" class="btn btn-secondary">
+            Cancel
+          </button>
+          <button id="btn-modal-confirm" class="btn btn-primary">
+            Yes, Reset Stats
+          </button>
+        </div>
+      </div>
     </div>
 
     <template id="list-item-template">

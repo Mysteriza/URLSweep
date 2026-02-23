@@ -216,8 +216,8 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
  * Log stripped parameters to storage grouped by date and domain.
  * Format: { "YYYY-MM-DD": { "example.com": 5, "total": 12 }, "total": 200 }
  */
-async function recordStats(domain, count) {
-  if (!domain || count <= 0) return;
+async function recordStats(domain, blockedCount = 0, inspectedCount = 0) {
+  if (!domain && inspectedCount === 0) return;
 
   // Use local timezone date string
   const dateStr = new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD format
@@ -227,18 +227,33 @@ async function recordStats(domain, count) {
 
   // Init Global
   if (!stats.total) stats.total = 0;
-  stats.total += count;
+  if (!stats.inspected) stats.inspected = 0;
+
+  stats.total += blockedCount;
+  stats.inspected += inspectedCount;
 
   // Init Date
-  if (!stats[dateStr]) stats[dateStr] = { total: 0 };
-  stats[dateStr].total += count;
+  if (!stats[dateStr]) stats[dateStr] = { total: 0, inspected: 0 };
+  stats[dateStr].total += blockedCount;
+  stats[dateStr].inspected += inspectedCount;
 
-  // Init Domain for Date
-  if (!stats[dateStr][domain]) stats[dateStr][domain] = 0;
-  stats[dateStr][domain] += count;
+  if (domain && blockedCount > 0) {
+    // Init Domain for Date
+    if (!stats[dateStr][domain]) stats[dateStr][domain] = 0;
+    stats[dateStr][domain] += blockedCount;
+  }
 
   await chrome.storage.local.set({ stats });
 }
+
+// 0. Track total inspected requests without blocking them
+chrome.webRequest.onBeforeRequest.addListener(
+  () => {
+    // We increment 'inspected' globally for any request made
+    recordStats(null, 0, 1);
+  },
+  { urls: ["<all_urls>"] },
+);
 
 // 1. Listen to declarativeNetRequest stripped redirects
 chrome.webRequest.onBeforeRedirect.addListener(
@@ -261,7 +276,7 @@ chrome.webRequest.onBeforeRedirect.addListener(
 
         const removedCount = origParams.length - redirParams.length;
         if (removedCount > 0) {
-          recordStats(origUrl.hostname, removedCount);
+          recordStats(origUrl.hostname, removedCount, 0);
         }
       }
     } catch (e) {
@@ -300,7 +315,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.action === "recordStats") {
-    recordStats(request.domain, request.count);
+    recordStats(request.domain, request.count, 0);
     return true;
   }
 });

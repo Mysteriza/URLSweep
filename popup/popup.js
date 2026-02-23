@@ -19,7 +19,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   if (!tab || !tab.url || !tab.url.startsWith("http")) {
     domainNameEl.textContent = "Unsupported Page";
-    statusTextEl.textContent = "NeatURL does not run here";
+    statusTextEl.textContent = "URLSweep does not run here";
     statusIcon.className = "status-circle";
     statusIcon.innerHTML = iconCross;
     btnToggle.disabled = true;

@@ -1,7 +1,7 @@
 # build.ps1
-# Script to package the NeatURL extension into a clean ZIP file for GitHub Releases
+# Script to package the URLSweep extension into a clean ZIP file for GitHub Releases
 
-$ExtensionName = "NeatURL"
+$ExtensionName = "URLSweep"
 $SourceDir = $PSScriptRoot
 $OutputDir = Join-Path $PSScriptRoot "dist"
 $ZipFile = Join-Path $OutputDir "$ExtensionName.zip"

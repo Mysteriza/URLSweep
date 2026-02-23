@@ -16,6 +16,8 @@
   --danger-color: #ef4444;
   --danger-hover: #fee2e2;
   --danger-text: #b91c1c;
+  --success: #10b981;
+  --info: #0ea5e9;
 
   --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
   --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
@@ -146,44 +148,86 @@ body {
   padding: 24px;
 }
 
-/* Statistics Grid */
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
+/* Dynamic Stats UI */
+.stats-progress-container {
+  margin: 16px auto 32px;
+  max-width: 400px;
 }
 
-.stat-box {
+.stats-progress-track {
+  height: 12px;
   background-color: var(--bg-surface-hover);
+  border-radius: 8px;
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  padding: 20px 16px;
-  text-align: center;
+  overflow: hidden;
+  display: flex;
+}
+
+.stats-progress-blocked {
+  background-color: var(--danger-color);
+  height: 100%;
+  transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 3px rgba(239, 68, 68, 0.4);
+}
+
+.stats-progress-elements {
+  background-color: var(--info);
+  height: 100%;
+  transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Stats List Header */
+.stats-list-container {
+  max-width: 250px;
+  margin: 0 auto;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  gap: 12px;
 }
 
-.stat-value {
-  font-size: 28px;
-  font-weight: 700;
-  color: var(--primary-color);
-  margin-bottom: 4px;
-  line-height: 1;
+.stats-list-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 15px;
 }
 
-.stat-label {
-  font-size: 13px;
-  color: var(--text-secondary);
+.stats-label {
+  color: var(--text-primary);
   font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
 }
 
-@media (max-width: 600px) {
-  .stats-grid {
-    grid-template-columns: 1fr;
+.stats-value {
+  font-family: monospace;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.text-info {
+  color: var(--info);
+}
+.text-danger {
+  color: var(--danger-color);
+}
+.text-success {
+  color: var(--success);
+}
+
+@media (prefers-color-scheme: dark) {
+  .text-info {
+    color: #38bdf8;
   }
+  .text-danger {
+    color: #f87171;
+  }
+  .text-success {
+    color: #34d399;
+  }
+}
+
+.btn-reset-stats {
+  color: var(--danger-text);
+  border-color: var(--danger-text);
 }
 
 /* Forms */
@@ -193,7 +237,8 @@ body {
   margin-bottom: 20px;
 }
 
-input[type="text"] {
+input[type="text"],
+textarea {
   flex: 1;
   background-color: var(--bg-surface);
   color: var(--text-primary);
@@ -206,7 +251,13 @@ input[type="text"] {
   transition: all 0.2s ease;
 }
 
-input[type="text"]:focus {
+textarea {
+  resize: vertical;
+  min-height: 42px;
+}
+
+input[type="text"]:focus,
+textarea:focus {
   outline: none;
   border-color: var(--primary-color);
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
@@ -311,6 +362,70 @@ input[type="text"]:focus {
 
 .hidden {
   display: none;
+}
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(15, 23, 42, 0.4);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(2px);
+  padding: 20px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .modal-overlay {
+    background-color: rgba(0, 0, 0, 0.6);
+  }
+}
+
+.modal-overlay.active {
+  display: flex;
+}
+
+.modal-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  padding: 24px;
+  max-width: 400px;
+  width: 100%;
+}
+
+.modal-card h3 {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+}
+
+.modal-card p {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 24px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.modal-actions .btn-primary {
+  background-color: var(--danger-color);
+  color: #fff;
+}
+
+.modal-actions .btn-primary:hover {
+  background-color: var(--danger-hover);
 }
 
 /* Utilities */

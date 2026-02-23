@@ -25,7 +25,7 @@ async function init() {
     }
   } catch (e) {
     // Background script might not be ready
-    console.debug("NeatURL: Could not fetch initial state.");
+    console.debug("URLSweep: Could not fetch initial state.");
   }
 }
 

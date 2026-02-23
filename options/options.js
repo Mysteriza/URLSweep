@@ -25,7 +25,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     allowlist = [],
     customTrackers = [],
     stats = {},
-  } = await chrome.storage.local.get(["allowlist", "customTrackers", "stats"]);
+    upstreamParams = [],
+    lastFetchTime = null,
+  } = await chrome.storage.local.get([
+    "allowlist",
+    "customTrackers",
+    "stats",
+    "upstreamParams",
+    "lastFetchTime",
+  ]);
 
   let currentAllowlist = [...allowlist];
   let currentCustomTrackers = [...customTrackers];
@@ -65,28 +73,46 @@ document.addEventListener("DOMContentLoaded", async () => {
   };
 
   const renderStats = () => {
-    const elTotal = document.getElementById("stat-total");
-    const elToday = document.getElementById("stat-today");
-    const elWeek = document.getElementById("stat-week");
+    const elUpdated = document.getElementById("stat-updated");
+    const elElements = document.getElementById("stat-elements");
+    const elBlocked = document.getElementById("stat-blocked");
+    const elPct = document.getElementById("stat-pct");
+    const barBlocked = document.getElementById("progress-blocked");
+    const barElements = document.getElementById("progress-elements");
 
-    // Total
-    elTotal.textContent = stats.total || 0;
+    // Last Updated Format (24H)
+    if (lastFetchTime && elUpdated) {
+      const d = new Date(lastFetchTime);
+      const hh = String(d.getHours()).padStart(2, "0");
+      const mm = String(d.getMinutes()).padStart(2, "0");
+      elUpdated.textContent = `Last updated: ${hh}:${mm}`;
+    } else if (elUpdated) {
+      elUpdated.textContent = `Last updated: Unknown`;
+    }
 
-    // Today
-    const todayStr = new Date().toLocaleDateString("en-CA");
-    elToday.textContent = stats[todayStr] ? stats[todayStr].total : 0;
+    // Dynamic Stats Logic
+    const tInspected = stats.inspected || 0;
+    const tBlocked = stats.total || 0;
 
-    // Past 7 Days
-    let weekTotal = 0;
-    for (let i = 0; i < 7; i++) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const dStr = d.toLocaleDateString("en-CA");
-      if (stats[dStr]) {
-        weekTotal += stats[dStr].total;
+    if (elElements) elElements.textContent = tInspected.toLocaleString();
+    if (elBlocked) elBlocked.textContent = tBlocked.toLocaleString();
+
+    if (tInspected > 0) {
+      const pctValue = (tBlocked / tInspected) * 100;
+      if (elPct) elPct.textContent = `${pctValue.toFixed(3)}%`;
+
+      if (barBlocked && barElements) {
+        // ClearURLs style bar logic: Blocked grows from the left, Elements fills the rest
+        barBlocked.style.width = `${pctValue}%`;
+        barElements.style.width = `${100 - pctValue}%`;
+      }
+    } else {
+      if (elPct) elPct.textContent = "0.000%";
+      if (barBlocked && barElements) {
+        barBlocked.style.width = "0%";
+        barElements.style.width = "100%";
       }
     }
-    elWeek.textContent = weekTotal;
   };
 
   const saveState = async () => {
@@ -95,6 +121,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       customTrackers: currentCustomTrackers,
     });
     renderLists();
+    renderStats();
   };
 
   // Add Handlers
@@ -119,9 +146,22 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   customParamsForm.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const param = customParamsInput.value.trim();
-    if (param && !currentCustomTrackers.includes(param)) {
-      currentCustomTrackers.push(param);
+    const rawVal = customParamsInput.value;
+    // Split by commas or newlines, sanitize, and remove empty entries
+    const params = rawVal
+      .split(/[\n,]+/)
+      .map((p) => p.trim())
+      .filter((p) => p.length > 0);
+
+    let added = false;
+    params.forEach((param) => {
+      if (!currentCustomTrackers.includes(param)) {
+        currentCustomTrackers.push(param);
+        added = true;
+      }
+    });
+
+    if (added) {
       await saveState();
       customParamsInput.value = "";
     }
@@ -189,18 +229,28 @@ document.addEventListener("DOMContentLoaded", async () => {
     reader.readAsText(file);
   });
 
-  // Reset Stats
+  // Reset Stats Modal
+  const resetModal = document.getElementById("reset-modal");
+
+  document.getElementById("btn-reset-stats").addEventListener("click", () => {
+    resetModal.classList.add("active");
+  });
+
+  document.getElementById("btn-modal-cancel").addEventListener("click", () => {
+    resetModal.classList.remove("active");
+  });
+
+  resetModal.addEventListener("click", (e) => {
+    if (e.target === resetModal) {
+      resetModal.classList.remove("active");
+    }
+  });
+
   document
-    .getElementById("btn-reset-stats")
+    .getElementById("btn-modal-confirm")
     .addEventListener("click", async () => {
-      if (
-        confirm(
-          "Are you sure you want to reset all tracking statistics? This cannot be undone.",
-        )
-      ) {
-        await chrome.storage.local.set({ stats: { total: 0 } });
-        window.location.reload();
-      }
+      await chrome.storage.local.set({ stats: { total: 0 } });
+      window.location.reload();
     });
 
   // Initial render

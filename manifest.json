@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "NeatURL",
-  "version": "1.0.2",
+  "name": "URLSweep",
+  "version": "1.0.3",
   "description": "Cleanly remove tracking parameters from URLs automatically. Stays up to date with ClearURLs.",
   "icons": {
     "16": "icons/icon16.png",
@@ -23,7 +23,7 @@
   },
   "action": {
     "default_popup": "popup/popup.html",
-    "default_title": "NeatURL",
+    "default_title": "URLSweep",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
