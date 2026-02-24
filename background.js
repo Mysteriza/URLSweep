@@ -27,26 +27,17 @@ async function fetchUpstreamRules() {
         allProviderRules.push(...provider.referralMarketing);
 
       for (const rule of allProviderRules) {
-        // Many ClearURLs rules contain regex like (?:&|[/?#&])(?:tracking=)([^&]*)
-        // Or simply `fbclid`. Chrome DNR `removeParams` expects an array of simple string parameters.
-        // We extract any sequence of valid parameter name characters.
-
-        // Match words that look like URL parameters (alphanumeric with underscores/dashes)
-        // Some rules might be very complex, but the parameter name itself is usually a literal in the regex.
-        // e.g., 'referral_code', 'utm_source', 'fbclid'
-        const matches = rule.match(/[a-zA-Z0-9_\-\.]+/g);
-
-        if (matches) {
-          for (const match of matches) {
-            // Filter out generic regex tokens that might get matched as words or short meaningless letters
-            if (
-              match.length > 2 &&
-              match !== "amp" &&
-              match !== "html" &&
-              match !== "http"
-            ) {
-              exactParams.add(match);
-            }
+        // Only accept pure explicit string parameters (e.g., "gclid", "fbclid")
+        // Discard any rule that contains Regex structural characters like (?, ^, [, *, etc.)
+        if (/^[a-zA-Z0-9_\-\.]+$/.test(rule)) {
+          // Additional safety check against generic structural tokens
+          if (
+            rule.length > 2 &&
+            rule !== "amp" &&
+            rule !== "html" &&
+            rule !== "http"
+          ) {
+            exactParams.add(rule);
           }
         }
       }
@@ -148,7 +139,12 @@ async function updateAllRules(forceFetch = false) {
 }
 
 // Ensure settings and stats exist on Install/Start
-chrome.runtime.onInstalled.addListener(async () => {
+chrome.runtime.onInstalled.addListener(async (details) => {
+  // CRITICAL HOTFIX: Force clear the corrupted tracking dictionary on update
+  if (details.reason === "install" || details.reason === "update") {
+    await chrome.storage.local.remove(["upstreamParams", "lastFetchTime"]);
+  }
+
   const data = await chrome.storage.local.get([
     "allowlist",
     "customTrackers",
