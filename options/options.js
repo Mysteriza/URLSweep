@@ -80,6 +80,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     const barBlocked = document.getElementById("progress-blocked");
     const barElements = document.getElementById("progress-elements");
 
+    // Legacy Stats Variables
+    const elTotal = document.getElementById("stat-total");
+    const elToday = document.getElementById("stat-today");
+    const elWeek = document.getElementById("stat-week");
+
     // Last Updated Format (24H)
     if (lastFetchTime && elUpdated) {
       const d = new Date(lastFetchTime);
@@ -113,6 +118,28 @@ document.addEventListener("DOMContentLoaded", async () => {
         barElements.style.width = "100%";
       }
     }
+
+    // --- Legacy Historic Stats ---
+    if (elTotal) elTotal.textContent = tBlocked.toLocaleString();
+
+    // Today
+    const todayStr = new Date().toLocaleDateString("en-CA");
+    if (elToday)
+      elToday.textContent = (
+        stats[todayStr] ? stats[todayStr].total : 0
+      ).toLocaleString();
+
+    // Past 7 Days
+    let weekTotal = 0;
+    for (let i = 0; i < 7; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const dStr = d.toLocaleDateString("en-CA");
+      if (stats[dStr]) {
+        weekTotal += stats[dStr].total;
+      }
+    }
+    if (elWeek) elWeek.textContent = weekTotal.toLocaleString();
   };
 
   const saveState = async () => {
