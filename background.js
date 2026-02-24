@@ -111,6 +111,7 @@ async function updateAllRules(forceFetch = false) {
       },
       condition: {
         resourceTypes: ["main_frame", "sub_frame"],
+        excludedRequestDomains: ["youtube.com", "youtu.be"],
       },
     });
   }
