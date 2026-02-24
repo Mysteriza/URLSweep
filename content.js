@@ -70,8 +70,19 @@ function cleanCurrentUrl() {
     }
 
     if (changed) {
-      // Use replaceState to update the URL bar without reloading or adding to history
-      window.history.replaceState(null, "", url.toString());
+      // Execute replaceState in the main world so SPAs (like YouTube polymer)
+      // that monkey-patch the history API don't get desynchronized.
+      try {
+        const script = document.createElement("script");
+        script.textContent = `window.history.replaceState(null, "", "${url
+          .toString()
+          .replace(/"/g, '\\"')}");`;
+        (document.head || document.documentElement).appendChild(script);
+        script.remove();
+      } catch (e) {
+        // Fallback
+        window.history.replaceState(null, "", url.toString());
+      }
 
       const totalRemoved =
         paramsToDelete.length +
@@ -106,8 +117,15 @@ setInterval(() => {
 // Also attempt to use the newer Navigation API where supported
 if (window.navigation) {
   window.navigation.addEventListener("navigate", (event) => {
-    // Wait a brief moment for the framework to finish its internal state update
-    setTimeout(cleanCurrentUrl, 50);
+    // If the framework is currently transitioning to a new route, wait for it
+    // so we don't abort their fetch/routing pipeline with our replaceState.
+    if (window.navigation.transition) {
+      window.navigation.transition.finished
+        .then(() => setTimeout(cleanCurrentUrl, 100))
+        .catch(() => setTimeout(cleanCurrentUrl, 100));
+    } else {
+      setTimeout(cleanCurrentUrl, 100);
+    }
   });
 }
 
