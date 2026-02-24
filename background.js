@@ -151,7 +151,24 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     "customTrackers",
     "stats",
   ]);
-  if (!data.allowlist) await chrome.storage.local.set({ allowlist: [] });
+
+  let allowlist = data.allowlist || [];
+  // CRITICAL HOTFIX: Add YouTube to allowlist permanently to bypass SPA infinite load loops
+  let allowlistChanged = false;
+  if (!allowlist.includes("youtube.com")) {
+    allowlist.push("youtube.com");
+    allowlistChanged = true;
+  }
+  if (!allowlist.includes("youtu.be")) {
+    allowlist.push("youtu.be");
+    allowlistChanged = true;
+  }
+
+  if (allowlistChanged) {
+    await chrome.storage.local.set({ allowlist });
+  } else if (!data.allowlist) {
+    await chrome.storage.local.set({ allowlist: [] });
+  }
   if (!data.customTrackers)
     await chrome.storage.local.set({ customTrackers: [] });
   if (!data.stats) await chrome.storage.local.set({ stats: {} });
