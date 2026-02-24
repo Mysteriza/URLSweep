@@ -29,7 +29,7 @@ This extension is currently available for manual installation:
 
 For developers or advanced users:
 
-1. Clone this repository: `git clone https://github.com/Mysteriza/URLSweeps.git`
+1. Clone this repository: `git clone https://github.com/Mysteriza/URLSweep.git`
 2. Follow steps 3-6 from Method 1, selecting the cloned directory.
 
 ## How It Works (Examples)
