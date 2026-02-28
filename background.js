@@ -4,9 +4,8 @@ const CLEARURLS_DATA_URL = "https://rules2.clearurls.xyz/data.minify.json";
 
 // Constants for rule IDs to avoid collision
 const BASE_TRACKER_RULE_ID_START = 1;
-const CUSTOM_TRACKER_RULE_ID = 5000;
 const ALLOWLIST_RULE_ID_START = 10000;
-const CHUNK_SIZE = 100; // Chrome limit is 100 query params per rule
+const CHUNK_SIZE = 100;
 
 /**
  * Fetch and extract the latest tracking parameters from ClearURLs upstream
@@ -70,6 +69,7 @@ async function updateAllRules(forceFetch = false) {
     "customTrackers",
     "upstreamParams",
     "lastFetchTime",
+    "isGloballyDisabled",
   ]);
 
   let upstreamParams = data.upstreamParams || [];
@@ -86,6 +86,7 @@ async function updateAllRules(forceFetch = false) {
 
   const customTrackers = data.customTrackers || [];
   const allowlist = data.allowlist || [];
+  const isGloballyDisabled = data.isGloballyDisabled || false;
 
   // Combine custom trackers with upstream, ensuring uniqueness
   const allTrackers = [...new Set([...upstreamParams, ...customTrackers])];
@@ -96,24 +97,27 @@ async function updateAllRules(forceFetch = false) {
   let addRules = [];
   let currentId = BASE_TRACKER_RULE_ID_START;
 
-  // 1. Generate Tracker Removal Rules (Priority 10)
-  // Split into chunks due to DNR API limit of `removeParams` per rule
-  for (let i = 0; i < allTrackers.length; i += CHUNK_SIZE) {
-    const chunk = allTrackers.slice(i, i + CHUNK_SIZE);
-    addRules.push({
-      id: currentId++,
-      priority: 10,
-      action: {
-        type: "redirect",
-        redirect: {
-          transform: { queryTransform: { removeParams: chunk } },
+  // If globally disabled, skip creating tracker removal rules
+  if (!isGloballyDisabled) {
+    // 1. Generate Tracker Removal Rules (Priority 10)
+    // Split into chunks due to DNR API limit of `removeParams` per rule
+    for (let i = 0; i < allTrackers.length; i += CHUNK_SIZE) {
+      const chunk = allTrackers.slice(i, i + CHUNK_SIZE);
+      addRules.push({
+        id: currentId++,
+        priority: 10,
+        action: {
+          type: "redirect",
+          redirect: {
+            transform: { queryTransform: { removeParams: chunk } },
+          },
         },
-      },
-      condition: {
-        resourceTypes: ["main_frame", "sub_frame"],
-        excludedRequestDomains: ["youtube.com", "youtu.be"],
-      },
-    });
+        condition: {
+          resourceTypes: ["main_frame", "sub_frame"],
+          excludedRequestDomains: ["youtube.com", "youtu.be"],
+        },
+      });
+    }
   }
 
   // 2. Generate Allowlist Exclusion Rules (Priority 100)
@@ -141,7 +145,7 @@ async function updateAllRules(forceFetch = false) {
 
 // Ensure settings and stats exist on Install/Start
 chrome.runtime.onInstalled.addListener(async (details) => {
-  // CRITICAL HOTFIX: Force clear the corrupted tracking dictionary on update
+  // Force clear the tracking dictionary on install/update to ensure fresh data
   if (details.reason === "install" || details.reason === "update") {
     await chrome.storage.local.remove(["upstreamParams", "lastFetchTime"]);
   }
@@ -152,21 +156,8 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     "stats",
   ]);
 
-  let allowlist = data.allowlist || [];
-  // CRITICAL HOTFIX: Add YouTube to allowlist permanently to bypass SPA infinite load loops
-  let allowlistChanged = false;
-  if (!allowlist.includes("youtube.com")) {
-    allowlist.push("youtube.com");
-    allowlistChanged = true;
-  }
-  if (!allowlist.includes("youtu.be")) {
-    allowlist.push("youtu.be");
-    allowlistChanged = true;
-  }
-
-  if (allowlistChanged) {
-    await chrome.storage.local.set({ allowlist });
-  } else if (!data.allowlist) {
+  // Initialize allowlist if not exists
+  if (!data.allowlist) {
     await chrome.storage.local.set({ allowlist: [] });
   }
   if (!data.customTrackers)
@@ -237,11 +228,9 @@ async function recordStats(domain, blockedCount = 0, inspectedCount = 0) {
 }
 
 // 0. Track total inspected requests without blocking them
+// Only track for documentation/awareness, not stored persistently to protect privacy
 chrome.webRequest.onBeforeRequest.addListener(
-  () => {
-    // We increment 'inspected' globally for any request made
-    recordStats(null, 0, 1);
-  },
+  () => {},
   { urls: ["<all_urls>"] },
 );
 

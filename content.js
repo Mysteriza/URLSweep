@@ -5,10 +5,19 @@
 let trackingParams = new Set();
 let isGloballyDisabled = false;
 let isAllowedOnDomain = false;
+let isInitialized = false;
+
+const KNOWN_ALLOWLIST = ["youtube.com", "youtu.be", "www.youtube.com", "m.youtube.com"];
 
 // 1. Initialize
 async function init() {
   const currentDomain = window.location.hostname;
+
+  if (KNOWN_ALLOWLIST.some(d => currentDomain.includes(d))) {
+    isAllowedOnDomain = true;
+    isInitialized = true;
+    return;
+  }
 
   // Ask background script for current rules and state
   try {
@@ -27,11 +36,12 @@ async function init() {
     // Background script might not be ready
     console.debug("URLSweep: Could not fetch initial state.");
   }
+  isInitialized = true;
 }
 
 // 2. The Cleaning Logic
 function cleanCurrentUrl() {
-  if (isGloballyDisabled || isAllowedOnDomain || trackingParams.size === 0)
+  if (!isInitialized || isGloballyDisabled || isAllowedOnDomain || trackingParams.size === 0)
     return;
 
   try {
@@ -51,12 +61,12 @@ function cleanCurrentUrl() {
 
     // 2. Clean Hash Parameters (#)
     // Some SPAs like Facebook put parameters like _rdc after the hash
+    let hashParamsToDelete = [];
     if (url.hash && url.hash.includes("=")) {
       // The hash string includes the '#' e.g. '#_rdc=1&_rdr'
       const hashContent = url.hash.substring(1);
 
       const hashParams = new URLSearchParams(hashContent);
-      let hashParamsToDelete = [];
 
       hashParams.forEach((value, key) => {
         if (trackingParams.has(key)) hashParamsToDelete.push(key);
@@ -70,25 +80,21 @@ function cleanCurrentUrl() {
     }
 
     if (changed) {
-      // Execute replaceState in the main world so SPAs (like YouTube polymer)
-      // that monkey-patch the history API don't get desynchronized.
+      const cleanUrl = url.toString();
+      const cleanUrlEscaped = cleanUrl.replace(/[&"<>']/g, (c) => {
+        const escapeMap = { '&': '&amp;', '"': '&quot;', '<': '&lt;', '>': '&gt;', "'": '&#39;' };
+        return escapeMap[c] || c;
+      });
       try {
         const script = document.createElement("script");
-        script.textContent = `window.history.replaceState(null, "", "${url
-          .toString()
-          .replace(/"/g, '\\"')}");`;
+        script.textContent = `window.history.replaceState(null, "", "${cleanUrlEscaped}");`;
         (document.head || document.documentElement).appendChild(script);
         script.remove();
       } catch (e) {
-        // Fallback
-        window.history.replaceState(null, "", url.toString());
+        window.history.replaceState(null, "", cleanUrl);
       }
 
-      const totalRemoved =
-        paramsToDelete.length +
-        (typeof hashParamsToDelete !== "undefined"
-          ? hashParamsToDelete.length
-          : 0);
+      const totalRemoved = paramsToDelete.length + hashParamsToDelete.length;
       if (totalRemoved > 0) {
         chrome.runtime.sendMessage({
           action: "recordStats",
@@ -108,6 +114,7 @@ let lastCheckedUrl = window.location.href;
 // Modern heavy SPAs like Facebook bypass standard History API monkey patches.
 // We use a frequent interval combined with a URL change detection.
 setInterval(() => {
+  if (!isInitialized) return;
   if (window.location.href !== lastCheckedUrl) {
     lastCheckedUrl = window.location.href;
     cleanCurrentUrl();
@@ -117,6 +124,7 @@ setInterval(() => {
 // Also attempt to use the newer Navigation API where supported
 if (window.navigation) {
   window.navigation.addEventListener("navigate", (event) => {
+    if (!isInitialized) return;
     // If the framework is currently transitioning to a new route, wait for it
     // so we don't abort their fetch/routing pipeline with our replaceState.
     if (window.navigation.transition) {
@@ -130,7 +138,10 @@ if (window.navigation) {
 }
 
 // And keep the fallback popstate
-window.addEventListener("popstate", () => setTimeout(cleanCurrentUrl, 50));
+window.addEventListener("popstate", () => {
+  if (!isInitialized) return;
+  setTimeout(cleanCurrentUrl, 50);
+});
 
 // 4. Listen for live settings changes from Popup/Options
 chrome.storage.onChanged.addListener((changes, namespace) => {
@@ -139,9 +150,10 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
       isGloballyDisabled = changes.isGloballyDisabled.newValue;
     }
     if (changes.allowlist) {
+      const currentDomain = window.location.hostname;
       isAllowedOnDomain = (changes.allowlist.newValue || []).includes(
-        window.location.hostname,
-      );
+        currentDomain,
+      ) || KNOWN_ALLOWLIST.some(d => currentDomain.includes(d));
     }
     if (changes.upstreamParams || changes.customTrackers) {
       // Re-fetch everything if rules change
