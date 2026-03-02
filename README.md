@@ -10,6 +10,9 @@ URLSweep is a minimalist, privacy-first, zero-overhead Chrome Extension that rig
 - **Backup & Restore**: Safely save and reload your custom configurations.
 
 ## Screenshots
+<img width="401" height="640" alt="image" src="https://github.com/user-attachments/assets/6ade9db9-bcce-40de-aac1-259dedc999c6" />
+<img width="336" height="697" alt="image" src="https://github.com/user-attachments/assets/c998b8ac-3de3-4409-8966-8997da9a0e72" />
+
 
 ## Installation
 
