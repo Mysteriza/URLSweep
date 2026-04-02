@@ -81,17 +81,10 @@ function cleanCurrentUrl() {
 
     if (changed) {
       const cleanUrl = url.toString();
-      const cleanUrlEscaped = cleanUrl.replace(/[&"<>']/g, (c) => {
-        const escapeMap = { '&': '&amp;', '"': '&quot;', '<': '&lt;', '>': '&gt;', "'": '&#39;' };
-        return escapeMap[c] || c;
-      });
       try {
-        const script = document.createElement("script");
-        script.textContent = `window.history.replaceState(null, "", "${cleanUrlEscaped}");`;
-        (document.head || document.documentElement).appendChild(script);
-        script.remove();
-      } catch (e) {
         window.history.replaceState(null, "", cleanUrl);
+      } catch (e) {
+        // Fallback
       }
 
       const totalRemoved = paramsToDelete.length + hashParamsToDelete.length;
