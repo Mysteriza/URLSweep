@@ -1,11 +1,98 @@
 // background.js
+// Service worker for URLSweep extension - handles DNR rules, stats, and upstream synchronization
+
+// ============================================================
+// Constants
+// ============================================================
 
 const CLEARURLS_DATA_URL = "https://rules2.clearurls.xyz/data.minify.json";
 
-// Constants for rule IDs to avoid collision
+// DNR rule ID ranges
 const BASE_TRACKER_RULE_ID_START = 1;
 const ALLOWLIST_RULE_ID_START = 10000;
 const CHUNK_SIZE = 100;
+
+// Timing constants
+const FETCH_INTERVAL_MS = 604800000; // 7 days in milliseconds
+const REFRESH_ALARM_PERIOD_MINUTES = 1440; // 24 hours
+const STATS_FLUSH_INTERVAL_MS = 30000; // 30 seconds
+const STATS_RETENTION_DAYS = 30;
+
+// DNR priorities
+const DNR_PRIORITY_TRACKER = 10;
+const DNR_PRIORITY_ALLOWLIST = 100;
+
+// ============================================================
+// Module-level State
+// ============================================================
+
+/** @type {Promise<void>} */
+let updateRulesPromise = Promise.resolve();
+
+/** @type {Object<string, number>} */
+let statsBuffer = {};
+
+/** @type {number} */
+let statsBufferTotal = 0;
+
+/** @type {number} */
+let statsBufferInspected = 0;
+
+/** @type {number} */
+let lastStatsFlush = 0;
+
+/** @type {string[]|null} */
+let cachedTrackerList = null;
+
+// ============================================================
+// Utility Functions
+// ============================================================
+
+/**
+ * Check if a hostname matches a domain pattern using suffix matching.
+ * @param {string} hostname - The full hostname (e.g., "www.example.com")
+ * @param {string} pattern - The domain pattern (e.g., "example.com")
+ * @returns {boolean}
+ */
+function isDomainMatch(hostname, pattern) {
+  return hostname === pattern || hostname.endsWith("." + pattern);
+}
+
+/**
+ * Merge tracker arrays with deduplication.
+ * @param {string[]} upstream
+ * @param {string[]} custom
+ * @returns {string[]}
+ */
+function mergeTrackers(upstream, custom) {
+  return [...new Set([...(upstream || []), ...(custom || [])])];
+}
+
+/**
+ * Get cached tracker list or rebuild it.
+ * @returns {Promise<string[]>}
+ */
+async function getCachedTrackers() {
+  if (cachedTrackerList === null) {
+    const data = await chrome.storage.local.get([
+      "upstreamParams",
+      "customTrackers",
+    ]);
+    cachedTrackerList = mergeTrackers(data.upstreamParams, data.customTrackers);
+  }
+  return cachedTrackerList;
+}
+
+/**
+ * Invalidate the cached tracker list.
+ */
+function invalidateTrackerCache() {
+  cachedTrackerList = null;
+}
+
+// ============================================================
+// Upstream Rule Fetching
+// ============================================================
 
 /**
  * Fetch and extract the latest tracking parameters from ClearURLs upstream
@@ -19,7 +106,7 @@ async function fetchUpstreamRules() {
     const providers = data.providers;
     const exactParams = new Set();
 
-    for (const [key, provider] of Object.entries(providers)) {
+    for (const provider of Object.values(providers)) {
       const allProviderRules = [];
       if (provider.rules) allProviderRules.push(...provider.rules);
       if (provider.referralMarketing)
@@ -27,7 +114,7 @@ async function fetchUpstreamRules() {
 
       for (const rule of allProviderRules) {
         // Only accept pure explicit string parameters (e.g., "gclid", "fbclid")
-        // Discard any rule that contains Regex structural characters like (?, ^, [, *, etc.)
+        // Discard any rule that contains Regex structural characters
         if (/^[a-zA-Z0-9_\-\.]+$/.test(rule)) {
           // Additional safety check against generic structural tokens
           if (
@@ -60,10 +147,14 @@ async function fetchUpstreamRules() {
   }
 }
 
+// ============================================================
+// DNR Rule Management
+// ============================================================
+
 /**
  * Re-evaluate and apply all dynamic rules based on custom params, upstream params, and allowlist.
  */
-async function updateAllRules(forceFetch = false) {
+async function _updateAllRules(forceFetch = false) {
   const data = await chrome.storage.local.get([
     "allowlist",
     "customTrackers",
@@ -74,11 +165,11 @@ async function updateAllRules(forceFetch = false) {
 
   let upstreamParams = data.upstreamParams || [];
 
-  // Fetch upstream if empty, forced, or older than 7 days (604800000 ms)
+  // Fetch upstream if empty, forced, or older than retention period
   const shouldFetch =
     forceFetch ||
     upstreamParams.length === 0 ||
-    Date.now() - (data.lastFetchTime || 0) > 604800000;
+    Date.now() - (data.lastFetchTime || 0) > FETCH_INTERVAL_MS;
 
   if (shouldFetch) {
     upstreamParams = await fetchUpstreamRules();
@@ -89,7 +180,10 @@ async function updateAllRules(forceFetch = false) {
   const isGloballyDisabled = data.isGloballyDisabled || false;
 
   // Combine custom trackers with upstream, ensuring uniqueness
-  const allTrackers = [...new Set([...upstreamParams, ...customTrackers])];
+  const allTrackers = mergeTrackers(upstreamParams, customTrackers);
+
+  // Update cache
+  cachedTrackerList = allTrackers;
 
   const existingRules = await chrome.declarativeNetRequest.getDynamicRules();
   const removeRuleIds = existingRules.map((rule) => rule.id);
@@ -99,13 +193,13 @@ async function updateAllRules(forceFetch = false) {
 
   // If globally disabled, skip creating tracker removal rules
   if (!isGloballyDisabled) {
-    // 1. Generate Tracker Removal Rules (Priority 10)
+    // Generate Tracker Removal Rules
     // Split into chunks due to DNR API limit of `removeParams` per rule
     for (let i = 0; i < allTrackers.length; i += CHUNK_SIZE) {
       const chunk = allTrackers.slice(i, i + CHUNK_SIZE);
       addRules.push({
         id: currentId++,
-        priority: 10,
+        priority: DNR_PRIORITY_TRACKER,
         action: {
           type: "redirect",
           redirect: {
@@ -114,17 +208,16 @@ async function updateAllRules(forceFetch = false) {
         },
         condition: {
           resourceTypes: ["main_frame", "sub_frame"],
-          excludedRequestDomains: ["youtube.com", "youtu.be"],
         },
       });
     }
   }
 
-  // 2. Generate Allowlist Exclusion Rules (Priority 100)
+  // Generate Allowlist Exclusion Rules (higher priority to override block rules)
   allowlist.forEach((domain, index) => {
     addRules.push({
       id: ALLOWLIST_RULE_ID_START + index,
-      priority: 100, // Higher priority to override block rules
+      priority: DNR_PRIORITY_ALLOWLIST,
       action: { type: "allowAllRequests" },
       condition: {
         requestDomains: [domain],
@@ -133,17 +226,141 @@ async function updateAllRules(forceFetch = false) {
     });
   });
 
-  await chrome.declarativeNetRequest.updateDynamicRules({
-    removeRuleIds,
-    addRules,
-  });
-
-  console.log(
-    `Rules synchronized: ${addRules.length} rules total, covering ${allTrackers.length} parameters and ${allowlist.length} allowed domains.`,
-  );
+  try {
+    await chrome.declarativeNetRequest.updateDynamicRules({
+      removeRuleIds,
+      addRules,
+    });
+    console.log(
+      `Rules synchronized: ${addRules.length} rules total, covering ${allTrackers.length} parameters and ${allowlist.length} allowed domains.`,
+    );
+  } catch (error) {
+    console.error("Failed to update DNR rules:", error);
+    // Optionally notify user if rules update fails
+    if (chrome.runtime.lastError) {
+      console.error("DNR API error:", chrome.runtime.lastError.message);
+    }
+  }
 }
 
-// Ensure settings and stats exist on Install/Start
+/**
+ * Thread-safe wrapper for updateAllRules to prevent concurrent executions.
+ * @param {boolean} forceFetch
+ */
+function updateAllRules(forceFetch = false) {
+  updateRulesPromise = updateRulesPromise
+    .then(() => _updateAllRules(forceFetch))
+    .catch((error) => {
+      console.error("Error in updateAllRules queue:", error);
+    });
+  return updateRulesPromise;
+}
+
+// ============================================================
+// Statistics Engine with Buffered Writes
+// ============================================================
+
+/**
+ * Flush buffered stats to storage with retention policy.
+ */
+async function flushStats() {
+  if (
+    statsBufferTotal === 0 &&
+    statsBufferInspected === 0 &&
+    Object.keys(statsBuffer).length === 0
+  ) {
+    return; // Nothing to flush
+  }
+
+  try {
+    const data = await chrome.storage.local.get("stats");
+    const stats = data.stats || {};
+
+    // Init Global counters
+    if (!stats.total) stats.total = 0;
+    if (!stats.inspected) stats.inspected = 0;
+
+    // Apply buffered totals
+    stats.total += statsBufferTotal;
+    stats.inspected += statsBufferInspected;
+
+    // Merge per-domain stats
+    const dateStr = new Date().toLocaleDateString("en-CA");
+    if (!stats[dateStr]) stats[dateStr] = { total: 0, inspected: 0 };
+
+    // Apply buffered per-domain stats
+    for (const [domain, count] of Object.entries(statsBuffer)) {
+      if (domain === "total" || domain === "inspected") continue;
+
+      stats[dateStr].total += count;
+      stats[dateStr].inspected += count;
+
+      if (!stats[dateStr][domain]) stats[dateStr][domain] = 0;
+      stats[dateStr][domain] += count;
+    }
+
+    // Retention policy: prune entries older than retention period
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - STATS_RETENTION_DAYS);
+    const cutoffStr = cutoffDate.toLocaleDateString("en-CA");
+
+    for (const key of Object.keys(stats)) {
+      if (key !== "total" && key !== "inspected" && key < cutoffStr) {
+        delete stats[key];
+      }
+    }
+
+    await chrome.storage.local.set({ stats });
+
+    // Clear buffer
+    statsBuffer = {};
+    statsBufferTotal = 0;
+    statsBufferInspected = 0;
+    lastStatsFlush = Date.now();
+
+    console.debug("Stats flushed to storage.");
+  } catch (error) {
+    console.error("Failed to flush stats:", error);
+  }
+}
+
+/**
+ * Buffer stats updates instead of writing to storage immediately.
+ * @param {string} domain
+ * @param {number} blockedCount
+ * @param {number} inspectedCount
+ */
+function recordStats(domain, blockedCount = 0, inspectedCount = 0) {
+  if (!domain && inspectedCount === 0) return;
+
+  // Accumulate in memory
+  statsBufferTotal += blockedCount;
+  statsBufferInspected += inspectedCount;
+
+  if (domain && blockedCount > 0) {
+    statsBuffer[domain] = (statsBuffer[domain] || 0) + blockedCount;
+  }
+
+  // Debounced flush to storage
+  const now = Date.now();
+  if (now - lastStatsFlush > STATS_FLUSH_INTERVAL_MS) {
+    flushStats();
+  }
+}
+
+// Flush stats when service worker is about to be suspended
+chrome.alarms.create("flushStats", { periodInMinutes: 5 });
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === "flushStats") {
+    flushStats();
+  }
+});
+
+// ============================================================
+// Event Listeners
+// ============================================================
+
+// Extension install/update
 chrome.runtime.onInstalled.addListener(async (details) => {
   // Force clear the tracking dictionary on install/update to ensure fresh data
   if (details.reason === "install" || details.reason === "update") {
@@ -156,100 +373,60 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     "stats",
   ]);
 
-  // Initialize allowlist if not exists
-  if (!data.allowlist) {
-    await chrome.storage.local.set({ allowlist: [] });
+  // Initialize storage with defaults in a single call
+  const defaults = {};
+  if (!data.allowlist) defaults.allowlist = [];
+  if (!data.customTrackers) defaults.customTrackers = [];
+  if (!data.stats) defaults.stats = {};
+
+  if (Object.keys(defaults).length > 0) {
+    await chrome.storage.local.set(defaults);
   }
-  if (!data.customTrackers)
-    await chrome.storage.local.set({ customTrackers: [] });
-  if (!data.stats) await chrome.storage.local.set({ stats: {} });
 
   // Create alarm to refresh upstream lists daily
-  chrome.alarms.create("refreshUpstream", { periodInMinutes: 1440 }); // 24 hours
+  chrome.alarms.clear("refreshUpstream"); // Prevent duplicates
+  chrome.alarms.create("refreshUpstream", {
+    periodInMinutes: REFRESH_ALARM_PERIOD_MINUTES,
+  });
 
   await updateAllRules(true);
 });
 
+// Extension startup
 chrome.runtime.onStartup.addListener(() => {
   updateAllRules(false);
 });
 
-// Periodic fetching
+// Alarm handler
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === "refreshUpstream") {
     updateAllRules(true);
   }
 });
 
-// Listen for Option/Popup UI changes
+// Storage change listener
 chrome.storage.onChanged.addListener((changes, namespace) => {
   if (
     namespace === "local" &&
     (changes.allowlist || changes.customTrackers || changes.isGloballyDisabled)
   ) {
+    invalidateTrackerCache();
     updateAllRules(false);
   }
 });
 
-// --- Statistics Engine ---
-
-/**
- * Log stripped parameters to storage grouped by date and domain.
- * Format: { "YYYY-MM-DD": { "example.com": 5, "total": 12 }, "total": 200 }
- */
-async function recordStats(domain, blockedCount = 0, inspectedCount = 0) {
-  if (!domain && inspectedCount === 0) return;
-
-  // Use local timezone date string
-  const dateStr = new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD format
-
-  const data = await chrome.storage.local.get("stats");
-  const stats = data.stats || {};
-
-  // Init Global
-  if (!stats.total) stats.total = 0;
-  if (!stats.inspected) stats.inspected = 0;
-
-  stats.total += blockedCount;
-  stats.inspected += inspectedCount;
-
-  // Init Date
-  if (!stats[dateStr]) stats[dateStr] = { total: 0, inspected: 0 };
-  stats[dateStr].total += blockedCount;
-  stats[dateStr].inspected += inspectedCount;
-
-  if (domain && blockedCount > 0) {
-    // Init Domain for Date
-    if (!stats[dateStr][domain]) stats[dateStr][domain] = 0;
-    stats[dateStr][domain] += blockedCount;
-  }
-
-  await chrome.storage.local.set({ stats });
-}
-
-// 0. Track total inspected requests without blocking them
-// Only track for documentation/awareness, not stored persistently to protect privacy
-chrome.webRequest.onBeforeRequest.addListener(
-  () => {},
-  { urls: ["<all_urls>"] },
-);
-
-// 1. Listen to declarativeNetRequest stripped redirects
+// Listen to DNR stripped redirects
 chrome.webRequest.onBeforeRedirect.addListener(
   (details) => {
-    // We only care if the extension caused the redirect (DNR action)
-    // Unfortunately Chrome doesn't explicitly flag DNR redirects in webRequest,
-    // but we can infer it if the redirectUrl is simply the stripped version of the original url.
     try {
       const origUrl = new URL(details.url);
       const redirUrl = new URL(details.redirectUrl);
 
-      // If host and pathname match, it's highly likely our parameter strip
+      // If host and pathname match, it's likely our parameter strip
       if (
         origUrl.hostname === redirUrl.hostname &&
         origUrl.pathname === redirUrl.pathname
       ) {
-        // Calculate how many parameters were removed
         const origParams = Array.from(origUrl.searchParams.keys());
         const redirParams = Array.from(redirUrl.searchParams.keys());
 
@@ -259,13 +436,13 @@ chrome.webRequest.onBeforeRedirect.addListener(
         }
       }
     } catch (e) {
-      // Ignore
+      // Ignore invalid URLs
     }
   },
   { urls: ["<all_urls>"] },
 );
 
-// 2. Serve state and handle explicit stats from content scripts
+// Message handler
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "getState") {
     chrome.storage.local
@@ -276,13 +453,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         "isGloballyDisabled",
       ])
       .then((data) => {
-        const allTrackers = [
-          ...new Set([
-            ...(data.upstreamParams || []),
-            ...(data.customTrackers || []),
-          ]),
-        ];
-        const isAllowed = (data.allowlist || []).includes(request.domain);
+        const allTrackers = mergeTrackers(
+          data.upstreamParams,
+          data.customTrackers,
+        );
+        const isAllowed = (data.allowlist || []).some((d) =>
+          isDomainMatch(request.domain, d),
+        );
 
         sendResponse({
           trackers: allTrackers,
@@ -295,6 +472,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   if (request.action === "recordStats") {
     recordStats(request.domain, request.count, 0);
-    return true;
+    // Fire-and-forget, no return true needed
   }
 });

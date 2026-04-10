@@ -1,5 +1,69 @@
 // popup.js
 
+// ============================================================
+// Utility Functions
+// ============================================================
+
+/**
+ * Check if a hostname matches a domain pattern using suffix matching.
+ * @param {string} hostname
+ * @param {string} pattern
+ * @returns {boolean}
+ */
+function isDomainMatch(hostname, pattern) {
+  return hostname === pattern || hostname.endsWith("." + pattern);
+}
+
+/**
+ * Check if domain is in allowlist.
+ * @param {string} domain
+ * @param {string[]} allowlist
+ * @returns {boolean}
+ */
+function checkDomainAllowed(domain, allowlist) {
+  return (allowlist || []).some((d) => isDomainMatch(domain, d));
+}
+
+/**
+ * Clean tracking parameters from a URL string.
+ * @param {string} urlString
+ * @param {Set<string>} trackers
+ * @returns {string|null} Cleaned URL or null if invalid
+ */
+function purifyUrl(urlString, trackers) {
+  if (!urlString || !trackers?.size) return urlString;
+
+  // Ensure protocol
+  if (!urlString.startsWith("http")) {
+    urlString = "https://" + urlString;
+  }
+
+  try {
+    const url = new URL(urlString);
+
+    // Validate protocol
+    if (!["http:", "https:"].includes(url.protocol)) {
+      return null;
+    }
+
+    const paramsToDelete = [];
+    url.searchParams.forEach((value, key) => {
+      if (trackers.has(key)) {
+        paramsToDelete.push(key);
+      }
+    });
+
+    paramsToDelete.forEach((key) => url.searchParams.delete(key));
+    return url.toString();
+  } catch (e) {
+    return null;
+  }
+}
+
+// ============================================================
+// Main Logic
+// ============================================================
+
 document.addEventListener("DOMContentLoaded", async () => {
   const btnSettings = document.getElementById("btn-settings");
   const domainNameEl = document.getElementById("domain-name");
@@ -48,28 +112,44 @@ document.addEventListener("DOMContentLoaded", async () => {
   const btnToggleSite = document.getElementById("btn-toggle-site");
   const btnToggleGlobal = document.getElementById("btn-toggle-global");
 
-  // Storage states
+  // Storage states - read once
   const {
     allowlist = [],
     isGloballyDisabled = false,
     stats = {},
+    upstreamParams = [],
+    customTrackers = [],
   } = await chrome.storage.local.get([
     "allowlist",
     "isGloballyDisabled",
     "stats",
+    "upstreamParams",
+    "customTrackers",
   ]);
-  let isAllowed = allowlist.includes(currentDomain);
+
+  // Use consistent domain matching
+  let isAllowed = checkDomainAllowed(currentDomain, allowlist);
   let globalDisabled = isGloballyDisabled;
+
+  // Cache trackers for purifier
+  const allTrackers = new Set([...upstreamParams, ...customTrackers]);
 
   // Calculate stats for current site
   let domainTotal = 0;
   for (const dateKey in stats) {
-    if (dateKey !== "total" && stats[dateKey][currentDomain]) {
+    if (
+      dateKey !== "total" &&
+      dateKey !== "inspected" &&
+      stats[dateKey]?.[currentDomain]
+    ) {
       domainTotal += stats[dateKey][currentDomain];
     }
   }
   document.getElementById("site-stats-counter").textContent = domainTotal;
 
+  /**
+   * Render the current state to the UI.
+   */
   const renderState = () => {
     if (globalDisabled) {
       statusIcon.className = "status-circle inactive";
@@ -125,7 +205,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     globalDisabled = !globalDisabled;
     await chrome.storage.local.set({ isGloballyDisabled: globalDisabled });
 
-    // We update the DNR rules logic here via setting change triggers in background.js
+    // DNR rules updated via background.js storage listener
     renderState();
     chrome.tabs.reload(tab.id);
   });
@@ -138,35 +218,16 @@ document.addEventListener("DOMContentLoaded", async () => {
     let urlString = purifyInput.value.trim();
     if (!urlString) return;
 
-    // Ensure protocol
-    if (!urlString.startsWith("http")) {
-      urlString = "https://" + urlString;
+    const cleanUrl = purifyUrl(urlString, allTrackers);
+
+    if (cleanUrl === null) {
+      alert("Invalid URL format or unsupported protocol");
+      return;
     }
 
+    purifyInput.value = cleanUrl;
+
     try {
-      const url = new URL(urlString);
-
-      const data = await chrome.storage.local.get([
-        "upstreamParams",
-        "customTrackers",
-      ]);
-      const allTrackers = new Set([
-        ...(data.upstreamParams || []),
-        ...(data.customTrackers || []),
-      ]);
-
-      const paramsToDelete = [];
-      url.searchParams.forEach((value, key) => {
-        if (allTrackers.has(key)) {
-          paramsToDelete.push(key);
-        }
-      });
-
-      paramsToDelete.forEach((key) => url.searchParams.delete(key));
-
-      const cleanUrl = url.toString();
-      purifyInput.value = cleanUrl;
-
       await navigator.clipboard.writeText(cleanUrl);
 
       const originalText = btnPurify.textContent;
@@ -178,7 +239,9 @@ document.addEventListener("DOMContentLoaded", async () => {
         btnPurify.className = "btn btn-secondary";
       }, 2000);
     } catch (e) {
-      alert("Invalid URL format");
+      // Clipboard API may fail (e.g., permission denied)
+      console.error("Failed to copy to clipboard:", e);
+      alert("URL cleaned but failed to copy. Please copy manually.");
     }
   });
 });

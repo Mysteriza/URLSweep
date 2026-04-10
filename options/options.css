@@ -32,26 +32,31 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg-base: #0f172a;
-    --bg-surface: #1e293b;
-    --bg-surface-hover: #334155;
+    --bg-base: #0b0f19;
+    --bg-surface: #111827;
+    --bg-surface-hover: #1f2937;
 
-    --text-primary: #f8fafc;
-    --text-secondary: #cbd5e1;
+    --text-primary: #f1f5f9;
+    --text-secondary: #94a3b8;
     --text-muted: #64748b;
 
-    --border-color: #334155;
+    --border-color: #1e293b;
+    --border-subtle: #1e293b;
 
-    --primary-color: #3b82f6; /* Use a distinct blue for primary buttons to contrast dark background */
+    --primary-color: #3b82f6;
     --primary-hover: #2563eb;
 
     --danger-color: #ef4444;
-    --danger-hover: #7f1d1d;
-    --danger-text: #fecaca;
+    --danger-hover: #dc2626;
+    --danger-text: #fca5a5;
 
-    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.5);
+    --success: #10b981;
+    --success-hover: #059669;
+    --info: #0ea5e9;
+
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.6);
     --shadow-md:
-      0 4px 6px -1px rgb(0 0 0 / 0.3), 0 2px 4px -2px rgb(0 0 0 / 0.3);
+      0 4px 6px -1px rgb(0 0 0 / 0.5), 0 2px 4px -2px rgb(0 0 0 / 0.4);
   }
 }
 
@@ -223,6 +228,12 @@ body {
   .text-success {
     color: #34d399;
   }
+  .stat-value {
+    color: #f1f5f9;
+  }
+  .modal-overlay {
+    background-color: rgba(0, 0, 0, 0.7);
+  }
 }
 
 /* Historic Stats Grid */
@@ -262,12 +273,6 @@ body {
   font-size: 13px;
   color: var(--text-secondary);
   font-weight: 500;
-}
-
-@media (prefers-color-scheme: dark) {
-  .stat-value {
-    color: var(--text-primary);
-  }
 }
 
 .btn-danger {

@@ -1,6 +1,10 @@
 // options.js
 
 document.addEventListener("DOMContentLoaded", async () => {
+  // ============================================================
+  // DOM Elements
+  // ============================================================
+
   const allowlistInput = document.getElementById("allowlist-input");
   const allowlistForm = document.getElementById("allowlist-form");
   const allowlistEl = document.getElementById("allowlist");
@@ -15,6 +19,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   const btnImport = document.getElementById("btn-import");
 
   const template = document.getElementById("list-item-template");
+
+  // ============================================================
+  // Initial Data Load
+  // ============================================================
 
   // Dynamically set version badge
   const manifest = chrome.runtime.getManifest();
@@ -35,9 +43,18 @@ document.addEventListener("DOMContentLoaded", async () => {
     "lastFetchTime",
   ]);
 
+  // Local state (mutable)
   let currentAllowlist = [...allowlist];
   let currentCustomTrackers = [...customTrackers];
+  let currentStats = { ...stats };
 
+  // ============================================================
+  // Render Functions
+  // ============================================================
+
+  /**
+   * Render allowlist and custom tracker lists.
+   */
   const renderLists = () => {
     // Render Allowlist
     allowlistEl.innerHTML = "";
@@ -72,6 +89,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   };
 
+  /**
+   * Render statistics dashboard.
+   */
   const renderStats = () => {
     const elUpdated = document.getElementById("stat-updated");
     const elElements = document.getElementById("stat-elements");
@@ -96,8 +116,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     // Dynamic Stats Logic
-    const tInspected = stats.inspected || 0;
-    const tBlocked = stats.total || 0;
+    const tInspected = currentStats.inspected || 0;
+    const tBlocked = currentStats.total || 0;
 
     if (elElements) elElements.textContent = tInspected.toLocaleString();
     if (elBlocked) elBlocked.textContent = tBlocked.toLocaleString();
@@ -107,7 +127,6 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (elPct) elPct.textContent = `${pctValue.toFixed(3)}%`;
 
       if (barBlocked && barElements) {
-        // ClearURLs style bar logic: Blocked grows from the left, Elements fills the rest
         barBlocked.style.width = `${pctValue}%`;
         barElements.style.width = `${100 - pctValue}%`;
       }
@@ -126,7 +145,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     const todayStr = new Date().toLocaleDateString("en-CA");
     if (elToday)
       elToday.textContent = (
-        stats[todayStr] ? stats[todayStr].total : 0
+        currentStats[todayStr] ? currentStats[todayStr].total : 0
       ).toLocaleString();
 
     // Past 7 Days
@@ -135,13 +154,16 @@ document.addEventListener("DOMContentLoaded", async () => {
       const d = new Date();
       d.setDate(d.getDate() - i);
       const dStr = d.toLocaleDateString("en-CA");
-      if (stats[dStr]) {
-        weekTotal += stats[dStr].total;
+      if (currentStats[dStr]) {
+        weekTotal += currentStats[dStr].total;
       }
     }
     if (elWeek) elWeek.textContent = weekTotal.toLocaleString();
   };
 
+  /**
+   * Save current state to storage.
+   */
   const saveState = async () => {
     await chrome.storage.local.set({
       allowlist: currentAllowlist,
@@ -151,7 +173,13 @@ document.addEventListener("DOMContentLoaded", async () => {
     renderStats();
   };
 
-  // Add Handlers
+  // ============================================================
+  // Event Handlers
+  // ============================================================
+
+  /**
+   * Add domain to allowlist.
+   */
   allowlistForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     let domain = allowlistInput.value.trim().toLowerCase();
@@ -162,7 +190,9 @@ document.addEventListener("DOMContentLoaded", async () => {
         const url = new URL(domain);
         domain = url.hostname;
       }
-    } catch (e) {}
+    } catch (e) {
+      // Invalid URL, use as-is
+    }
 
     if (domain && !currentAllowlist.includes(domain)) {
       currentAllowlist.push(domain);
@@ -171,6 +201,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
+  /**
+   * Add custom tracker parameters.
+   */
   customParamsForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     const rawVal = customParamsInput.value;
@@ -194,23 +227,34 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
-  // Remove Handlers
+  /**
+   * Remove domain from allowlist.
+   */
   const removeAllowlist = async (domain) => {
     currentAllowlist = currentAllowlist.filter((d) => d !== domain);
     await saveState();
   };
 
+  /**
+   * Remove custom tracker parameter.
+   */
   const removeCustomParam = async (param) => {
     currentCustomTrackers = currentCustomTrackers.filter((p) => p !== param);
     await saveState();
   };
 
-  // Backup & Restore
+  // ============================================================
+  // Backup & Restore with Validation
+  // ============================================================
+
+  /**
+   * Export backup file.
+   */
   btnExport.addEventListener("click", () => {
     const backupData = {
       allowlist: currentAllowlist,
       customTrackers: currentCustomTrackers,
-      stats: stats,
+      stats: currentStats,
       exportedAt: new Date().toISOString(),
     };
 
@@ -226,63 +270,102 @@ document.addEventListener("DOMContentLoaded", async () => {
     URL.revokeObjectURL(url);
   });
 
-  btnImport.addEventListener("change", (e) => {
+  /**
+   * Import backup file with validation.
+   */
+  btnImport.addEventListener("change", async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      try {
-        const importedData = JSON.parse(event.target.result);
-        if (Array.isArray(importedData.allowlist)) {
-          currentAllowlist = [
-            ...new Set([...currentAllowlist, ...importedData.allowlist]),
-          ];
-        }
-        if (Array.isArray(importedData.customTrackers)) {
-          currentCustomTrackers = [
-            ...new Set([
-              ...currentCustomTrackers,
-              ...importedData.customTrackers,
-            ]),
-          ];
-        }
+    try {
+      // Modern File API
+      const text = await file.text();
+      const importedData = JSON.parse(text);
 
-        // Merge stats if existing
-        if (importedData.stats && typeof importedData.stats === "object") {
-          let updatedStats = { ...stats };
-          for (const key in importedData.stats) {
-            if (typeof importedData.stats[key] === "number") {
-              // Primitive sum like "total" or "inspected"
-              updatedStats[key] =
-                (updatedStats[key] || 0) + importedData.stats[key];
-            } else if (typeof importedData.stats[key] === "object") {
-              // Deep merge for date objects
-              if (!updatedStats[key]) updatedStats[key] = {};
-              for (const subKey in importedData.stats[key]) {
-                updatedStats[key][subKey] =
-                  (updatedStats[key][subKey] || 0) +
+      // Validate and filter allowlist
+      if (Array.isArray(importedData.allowlist)) {
+        const validDomains = importedData.allowlist.filter(
+          (d) => typeof d === "string" && d.length > 0,
+        );
+        currentAllowlist = [...new Set([...currentAllowlist, ...validDomains])];
+      }
+
+      // Validate and filter custom trackers
+      if (Array.isArray(importedData.customTrackers)) {
+        const validParams = importedData.customTrackers.filter(
+          (p) => typeof p === "string" && p.length > 0,
+        );
+        currentCustomTrackers = [
+          ...new Set([...currentCustomTrackers, ...validParams]),
+        ];
+      }
+
+      // Validate and merge stats
+      if (importedData.stats && typeof importedData.stats === "object") {
+        const mergedStats = { ...currentStats };
+
+        for (const key in importedData.stats) {
+          if (typeof importedData.stats[key] === "number") {
+            // Primitive sum like "total" or "inspected"
+            mergedStats[key] =
+              (mergedStats[key] || 0) + importedData.stats[key];
+          } else if (
+            typeof importedData.stats[key] === "object" &&
+            importedData.stats[key] !== null
+          ) {
+            // Deep merge for date objects
+            if (!mergedStats[key]) mergedStats[key] = {};
+            for (const subKey in importedData.stats[key]) {
+              if (typeof importedData.stats[key][subKey] === "number") {
+                mergedStats[key][subKey] =
+                  (mergedStats[key][subKey] || 0) +
                   importedData.stats[key][subKey];
               }
             }
           }
-          await chrome.storage.local.set({ stats: updatedStats });
-          // Must re-pull the global stats reference before updating view
-          const freshData = await chrome.storage.local.get("stats");
-          Object.assign(stats, freshData.stats);
         }
 
-        await saveState();
-        alert("Backup successfully imported!");
-      } catch (error) {
-        alert("Invalid backup file formatting.");
+        await chrome.storage.local.set({ stats: mergedStats });
+        currentStats = mergedStats;
       }
+
+      await saveState();
+      alert("Backup successfully imported!");
+    } catch (error) {
+      console.error("Import error:", error);
+      alert("Invalid backup file formatting.");
+    } finally {
       e.target.value = ""; // Reset file input
-    };
-    reader.readAsText(file);
+    }
   });
 
+  // ============================================================
+  // Storage Change Listener (sync across tabs/popup)
+  // ============================================================
+
+  chrome.storage.onChanged.addListener((changes, namespace) => {
+    if (namespace !== "local") return;
+
+    if (changes.allowlist) {
+      currentAllowlist = [...(changes.allowlist.newValue || [])];
+      renderLists();
+    }
+
+    if (changes.customTrackers) {
+      currentCustomTrackers = [...(changes.customTrackers.newValue || [])];
+      renderLists();
+    }
+
+    if (changes.stats) {
+      currentStats = { ...(changes.stats.newValue || {}) };
+      renderStats();
+    }
+  });
+
+  // ============================================================
   // Reset Stats Modal
+  // ============================================================
+
   const resetModal = document.getElementById("reset-modal");
 
   document.getElementById("btn-reset-stats").addEventListener("click", () => {
@@ -302,11 +385,16 @@ document.addEventListener("DOMContentLoaded", async () => {
   document
     .getElementById("btn-modal-confirm")
     .addEventListener("click", async () => {
-      await chrome.storage.local.set({ stats: { total: 0 } });
-      window.location.reload();
+      await chrome.storage.local.set({ stats: { total: 0, inspected: 0 } });
+      currentStats = { total: 0, inspected: 0 };
+      resetModal.classList.remove("active");
+      renderStats();
     });
 
-  // Initial render
+  // ============================================================
+  // Initial Render
+  // ============================================================
+
   renderLists();
   renderStats();
 });
