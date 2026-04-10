@@ -16,6 +16,7 @@ Desktop.ini
 *.njsproj
 *.sln
 *.sw?
+.qwen
 
 # Extension build outputs (if any are added later)
 dist/

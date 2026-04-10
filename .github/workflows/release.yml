@@ -18,15 +18,44 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Needed to fetch all tags for changelog generation
-          fetch-tags: true
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract Version
+      - name: Auto-Increment Version
         id: version
         run: |
-          # Ambil versi dari manifest.json pake jq
-          VERSION=$(jq -r '.version' manifest.json)
-          echo "VERSION=v$VERSION" >> $GITHUB_ENV
+          # Read current version from manifest.json
+          CURRENT_VERSION=$(jq -r '.version' manifest.json)
+          MAJOR=$(echo $CURRENT_VERSION | cut -d. -f1)
+          MINOR=$(echo $CURRENT_VERSION | cut -d. -f2)
+          PATCH=$(echo $CURRENT_VERSION | cut -d. -f3)
+
+          # Increment patch version
+          NEW_PATCH=$((PATCH + 1))
+          NEW_VERSION="$MAJOR.$MINOR.$NEW_PATCH"
+
+          # Update manifest.json with new version
+          jq --arg ver "$NEW_VERSION" '.version = $ver' manifest.json > manifest.tmp.json
+          mv manifest.tmp.json manifest.json
+
+          # Set environment variable
+          echo "VERSION=v$NEW_VERSION" >> $GITHUB_ENV
+          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
+
+          echo "Version bumped: $CURRENT_VERSION -> $NEW_VERSION"
+
+      - name: Commit Version Update
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add manifest.json
+          git commit -m "chore: bump version to ${{ env.NEW_VERSION }} [skip ci]"
+          git push
+
+      - name: Create and Push Git Tag
+        run: |
+          git tag -a ${{ env.VERSION }} -m "Release ${{ env.VERSION }}"
+          git push origin ${{ env.VERSION }}
 
       - name: Build Extension ZIP
         run: |
@@ -36,8 +65,8 @@ jobs:
       - name: Generate Changelog
         id: changelog
         run: |
-          # Get previous tag, or use empty string if this is the first tag
-          PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          # Get previous tag (excluding the one we just created)
+          PREV_TAG=$(git tag --sort=-creatordate | grep -v "^${{ env.VERSION }}$" | head -n 1)
 
           if [ -z "$PREV_TAG" ]; then
             echo "First release, getting all commits."
@@ -57,5 +86,7 @@ jobs:
           name: NeatURL ${{ env.VERSION }}
           body_path: release_body.txt
           files: dist/NeatURL.zip
+          draft: false
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
