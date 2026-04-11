@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "URLSweep",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "Cleanly remove tracking parameters from URLs automatically. Stays up to date with ClearURLs.",
   "icons": {
     "16": "icons/icon16.png",
@@ -13,9 +13,11 @@
     "storage",
     "tabs",
     "alarms",
-    "webRequest" 
+    "webRequest"
   ],
-  "host_permissions": ["<all_urls>"],
+  "host_permissions": [
+    "<all_urls>"
+  ],
   "background": {
     "service_worker": "background.js",
     "type": "module"
@@ -31,8 +33,12 @@
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["content.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js"
+      ],
       "run_at": "document_start"
     }
   ],
