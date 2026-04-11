@@ -1,8 +1,65 @@
 // popup.js
 
 // ============================================================
+// Constants
+// ============================================================
+
+/**
+ * Parameters that should NEVER be removed as they are critical for
+ * authentication, OAuth, session management, and core functionality.
+ * @type {ReadonlySet<string>}
+ */
+const SAFE_PARAMS = Object.freeze(
+  new Set([
+    // OAuth/OpenID Connect
+    "code",
+    "state",
+    "scope",
+    "redirect_uri",
+    "response_type",
+    "client_id",
+    "client_secret",
+    "grant_type",
+    "access_token",
+    "token_type",
+    "refresh_token",
+    "expires_in",
+    "id_token",
+    // Session/Auth
+    "session",
+    "token",
+    "auth",
+    "callback",
+    "return_to",
+    "next",
+    "continue",
+    "destination",
+    // Proton-specific
+    "goto",
+    "username",
+    "password",
+    "twoFA",
+    "mfa",
+    "verify",
+    // Password reset
+    "reset_token",
+    "resetToken",
+    "verification_code",
+  ]),
+);
+
+// ============================================================
 // Utility Functions
 // ============================================================
+
+/**
+ * Check if a parameter is safe and should never be removed.
+ * @param {string} param
+ * @returns {boolean}
+ */
+function isSafeParam(param) {
+  return SAFE_PARAMS.has(param.toLowerCase());
+}
 
 /**
  * Check if a hostname matches a domain pattern using suffix matching.
@@ -48,7 +105,7 @@ function purifyUrl(urlString, trackers) {
 
     const paramsToDelete = [];
     url.searchParams.forEach((value, key) => {
-      if (trackers.has(key)) {
+      if (trackers.has(key) && !isSafeParam(key)) {
         paramsToDelete.push(key);
       }
     });

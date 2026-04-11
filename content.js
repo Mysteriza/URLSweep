@@ -22,8 +22,66 @@ let lastCheckedUrl = window.location.href;
 let initGeneration = 0;
 
 // ============================================================
+// Constants
+// ============================================================
+
+/**
+ * Parameters that should NEVER be removed as they are critical for
+ * authentication, OAuth, session management, and core functionality.
+ * @type {ReadonlySet<string>}
+ */
+const SAFE_PARAMS = Object.freeze(
+  new Set([
+    // OAuth/OpenID Connect
+    "code",
+    "state",
+    "scope",
+    "redirect_uri",
+    "response_type",
+    "client_id",
+    "client_secret",
+    "grant_type",
+    "access_token",
+    "token_type",
+    "refresh_token",
+    "expires_in",
+    "id_token",
+    // Session/Auth
+    "session",
+    "token",
+    "auth",
+    "callback",
+    "return_to",
+    "next",
+    "continue",
+    "returnUrl",
+    "destination",
+    // Proton-specific
+    "goto",
+    "username",
+    "password",
+    "twoFA",
+    "mfa",
+    "verify",
+    // Password reset
+    "reset_token",
+    "resetToken",
+    "verification_code",
+  ]),
+);
+
+// ============================================================
 // Utility Functions
 // ============================================================
+
+/**
+ * Check if a parameter is safe and should never be removed.
+ * @param {string} param
+ * @returns {boolean}
+ */
+function isSafeParam(param) {
+  return SAFE_PARAMS.has(param.toLowerCase());
+}
 
 /**
  * Check if a hostname matches a domain pattern using suffix matching.
@@ -133,6 +191,36 @@ async function init() {
 }
 
 /**
+ * Check if the current URL is on an authentication/login page where
+ * parameter stripping could break the flow.
+ * @returns {boolean}
+ */
+function isAuthPage() {
+  const pathname = window.location.pathname.toLowerCase();
+  const authPatterns = [
+    "/login",
+    "/signin",
+    "/signup",
+    "/register",
+    "/auth",
+    "/oauth",
+    "/authorize",
+    "/callback",
+    "/verify",
+    "/verify-email",
+    "/forgot-password",
+    "/reset-password",
+    "/two-factor",
+    "/2fa",
+    "/mfa",
+    "/session",
+    "/sso",
+  ];
+
+  return authPatterns.some((pattern) => pathname.includes(pattern));
+}
+
+/**
  * Clean tracking parameters from the current URL.
  */
 function cleanCurrentUrl() {
@@ -145,6 +233,12 @@ function cleanCurrentUrl() {
     return;
   }
 
+  // Skip cleaning on auth pages to prevent breaking login flows
+  if (isAuthPage()) {
+    console.debug("URLSweep: Skipping cleaning on auth page.");
+    return;
+  }
+
   try {
     const url = new URL(window.location.href);
     let changed = false;
@@ -152,7 +246,10 @@ function cleanCurrentUrl() {
     // 1. Clean Query Parameters (?)
     const paramsToDelete = [];
     url.searchParams.forEach((value, key) => {
-      if (trackingParams.has(key)) paramsToDelete.push(key);
+      // Skip if it's a tracking param but ALSO a safe param
+      if (trackingParams.has(key) && !isSafeParam(key)) {
+        paramsToDelete.push(key);
+      }
     });
 
     if (paramsToDelete.length > 0) {
@@ -168,7 +265,10 @@ function cleanCurrentUrl() {
       const hashParams = new URLSearchParams(hashContent);
 
       hashParams.forEach((value, key) => {
-        if (trackingParams.has(key)) hashParamsToDelete.push(key);
+        // Skip if it's a tracking param but ALSO a safe param
+        if (trackingParams.has(key) && !isSafeParam(key)) {
+          hashParamsToDelete.push(key);
+        }
       });
 
       if (hashParamsToDelete.length > 0) {
