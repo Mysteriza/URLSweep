@@ -1,9 +1,25 @@
 // content.js
-// This script runs in every webpage to catch and clean URLs in the address bar
-// that Single Page Applications (SPAs) modify via History API without triggering full network requests.
+// Content script - SPA URL cleaning with retry messaging
 
 // ============================================================
-// Module-level State
+// Constants (module-level, never change)
+// ============================================================
+
+const SAFE_PARAMS = new Set([
+  "v", "t", "list", "index", "pp", "s",
+  "q", "search", "page", "sort", "filter",
+  "lang", "hl", "gl",
+]);
+
+const AUTH_PATH_PATTERNS = new Set([
+  "/login", "/signin", "/signup", "/register", "/auth",
+  "/oauth", "/authorize", "/callback", "/verify", "/verify-email",
+  "/forgot-password", "/reset-password", "/two-factor", "/2fa",
+  "/mfa", "/session", "/sso",
+]);
+
+// ============================================================
+// State
 // ============================================================
 
 /** @type {Set<string>} */
@@ -14,119 +30,72 @@ let isInitialized = false;
 
 /** @type {number|null} */
 let urlCheckIntervalId = null;
-
-/** @type {string} */
-let lastCheckedUrl = window.location.href;
-
-/** @type {number} */
 let initGeneration = 0;
 
-// ============================================================
-// Constants
-// ============================================================
+/** @type {string} */
+let lastCheckedUrl = "";
 
-/**
- * Parameters that should NEVER be removed as they are critical for
- * authentication, OAuth, session management, and core functionality.
- * @type {ReadonlySet<string>}
- */
-const SAFE_PARAMS = Object.freeze(
-  new Set([
-    // OAuth/OpenID Connect
-    "code",
-    "state",
-    "scope",
-    "redirect_uri",
-    "response_type",
-    "client_id",
-    "client_secret",
-    "grant_type",
-    "access_token",
-    "token_type",
-    "refresh_token",
-    "expires_in",
-    "id_token",
-    // Session/Auth
-    "session",
-    "token",
-    "auth",
-    "callback",
-    "return_to",
-    "next",
-    "continue",
-    "returnUrl",
-    "destination",
-    // Proton-specific
-    "goto",
-    "username",
-    "password",
-    "twoFA",
-    "mfa",
-    "verify",
-    // Password reset
-    "reset_token",
-    "resetToken",
-    "verification_code",
-  ]),
-);
+/** @type {number|null} */
+let navigationTimeout = null;
+/** @type {number|null} */
+let storageChangeTimeout = null;
 
 // ============================================================
-// Utility Functions
+// Utilities
 // ============================================================
 
-/**
- * Check if a parameter is safe and should never be removed.
- * @param {string} param
- * @returns {boolean}
- */
-function isSafeParam(param) {
-  return SAFE_PARAMS.has(param.toLowerCase());
-}
-
-/**
- * Check if a hostname matches a domain pattern using suffix matching.
- * @param {string} hostname - The full hostname (e.g., "www.example.com")
- * @param {string} pattern - The domain pattern (e.g., "example.com")
- * @returns {boolean}
- */
 function isDomainMatch(hostname, pattern) {
   return hostname === pattern || hostname.endsWith("." + pattern);
 }
 
-/**
- * Check if the current domain is in the allowlist.
- * @param {string} domain
- * @param {string[]} allowlist
- * @returns {boolean}
- */
 function checkDomainAllowed(domain, allowlist) {
-  return (allowlist || []).some((d) => isDomainMatch(domain, d));
+  if (!allowlist || allowlist.length === 0) return false;
+  return allowlist.some((d) => isDomainMatch(domain, d));
+}
+
+function isSafeParam(key) {
+  return SAFE_PARAMS.has(key.toLowerCase());
+}
+
+function isAuthPage() {
+  const pathname = window.location.pathname.toLowerCase();
+  for (const pattern of AUTH_PATH_PATTERNS) {
+    if (pathname.includes(pattern)) return true;
+  }
+  return false;
+}
+
+/**
+ * Send message with retry. Returns null on failure.
+ */
+function postMessage(msg) {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage(msg, (response) => {
+      if (chrome.runtime.lastError) {
+        resolve(null);
+      } else {
+        resolve(response);
+      }
+    });
+  });
 }
 
 // ============================================================
-// Interval Management
+// Interval / Lifecycle
 // ============================================================
 
-/**
- * Start the URL checking interval.
- */
-function startUrlChecking() {
-  // Clear any existing interval first
-  stopUrlChecking();
-
+function startUrlCheck() {
+  stopUrlCheck();
   urlCheckIntervalId = setInterval(() => {
     if (!isInitialized || isGloballyDisabled || isAllowedOnDomain) return;
     if (window.location.href !== lastCheckedUrl) {
       lastCheckedUrl = window.location.href;
       cleanCurrentUrl();
     }
-  }, 1000); // Check every 1000ms (reduced from 500ms for better performance)
+  }, 1000);
 }
 
-/**
- * Stop the URL checking interval.
- */
-function stopUrlChecking() {
+function stopUrlCheck() {
   if (urlCheckIntervalId !== null) {
     clearInterval(urlCheckIntervalId);
     urlCheckIntervalId = null;
@@ -134,95 +103,45 @@ function stopUrlChecking() {
 }
 
 // ============================================================
-// Core Functions
+// Core
 // ============================================================
 
-/**
- * Initialize the content script by fetching state from background.
- */
 async function init() {
-  const currentGeneration = ++initGeneration;
-  const currentDomain = window.location.hostname;
+  const gen = ++initGeneration;
+  const host = window.location.hostname;
 
-  // Handle special pages where hostname is empty
-  if (!currentDomain) {
+  if (!host) {
     isAllowedOnDomain = true;
     isInitialized = true;
-    stopUrlChecking();
+    stopUrlCheck();
     return;
   }
 
-  // Ask background script for current rules and state
+  lastCheckedUrl = window.location.href;
+
   try {
-    const response = await chrome.runtime.sendMessage({
-      action: "getState",
-      domain: currentDomain,
-    });
+    const resp = await postMessage({ action: "getState", domain: host });
+    if (gen !== initGeneration) return;
 
-    // Check if this init call is still the latest (prevent race conditions)
-    if (currentGeneration !== initGeneration) {
-      console.debug("URLSweep: Stale init response discarded.");
-      return;
+    if (resp) {
+      isGloballyDisabled = !!resp.isGloballyDisabled;
+      isAllowedOnDomain = !!resp.isAllowed;
+      trackingParams = new Set(resp.trackers || []);
     }
-
-    if (response) {
-      isGloballyDisabled = response.isGloballyDisabled;
-      isAllowedOnDomain = response.isAllowed;
-      trackingParams = new Set(response.trackers || []);
-    }
-  } catch (e) {
-    // Background script might not be ready (e.g., fresh install, service worker asleep)
-    console.debug(
-      "URLSweep: Could not fetch initial state, will retry on navigation.",
-    );
+  } catch (_e) {
+    // Will retry on navigation
   }
 
   isInitialized = true;
 
-  // Always attempt to clean, even if init failed (use existing tracker set)
-  cleanCurrentUrl();
-
-  // Start or stop interval based on state
-  if (!isGloballyDisabled && !isAllowedOnDomain) {
-    startUrlChecking();
+  if (!isGloballyDisabled && !isAllowedOnDomain && trackingParams.size > 0) {
+    cleanCurrentUrl();
+    startUrlCheck();
   } else {
-    stopUrlChecking();
+    stopUrlCheck();
   }
 }
 
-/**
- * Check if the current URL is on an authentication/login page where
- * parameter stripping could break the flow.
- * @returns {boolean}
- */
-function isAuthPage() {
-  const pathname = window.location.pathname.toLowerCase();
-  const authPatterns = [
-    "/login",
-    "/signin",
-    "/signup",
-    "/register",
-    "/auth",
-    "/oauth",
-    "/authorize",
-    "/callback",
-    "/verify",
-    "/verify-email",
-    "/forgot-password",
-    "/reset-password",
-    "/two-factor",
-    "/2fa",
-    "/mfa",
-    "/session",
-    "/sso",
-  ];
-
-  return authPatterns.some((pattern) => pathname.includes(pattern));
-}
-
-/**
- * Clean tracking parameters from the current URL.
- */
 function cleanCurrentUrl() {
   if (
     !isInitialized ||
@@ -233,75 +152,58 @@ function cleanCurrentUrl() {
     return;
   }
 
-  // Skip cleaning on auth pages to prevent breaking login flows
-  if (isAuthPage()) {
-    console.debug("URLSweep: Skipping cleaning on auth page.");
-    return;
-  }
+  if (isAuthPage()) return;
 
   try {
     const url = new URL(window.location.href);
     let changed = false;
 
-    // 1. Clean Query Parameters (?)
-    const paramsToDelete = [];
-    url.searchParams.forEach((value, key) => {
-      // Skip if it's a tracking param but ALSO a safe param
+    // Query params
+    const toDelete = [];
+    url.searchParams.forEach((_v, key) => {
       if (trackingParams.has(key) && !isSafeParam(key)) {
-        paramsToDelete.push(key);
+        toDelete.push(key);
       }
     });
-
-    if (paramsToDelete.length > 0) {
-      paramsToDelete.forEach((key) => url.searchParams.delete(key));
+    if (toDelete.length > 0) {
+      toDelete.forEach((k) => url.searchParams.delete(k));
       changed = true;
     }
 
-    // 2. Clean Hash Parameters (#)
-    // Some SPAs like Facebook put parameters like _rdc after the hash
-    let hashParamsToDelete = [];
-    if (url.hash && url.hash.includes("=")) {
-      const hashContent = url.hash.substring(1);
-      const hashParams = new URLSearchParams(hashContent);
-
-      hashParams.forEach((value, key) => {
-        // Skip if it's a tracking param but ALSO a safe param
+    // Hash params
+    const hashDel = [];
+    if (url.hash.includes("=")) {
+      const hp = new URLSearchParams(url.hash.substring(1));
+      hp.forEach((_v, key) => {
         if (trackingParams.has(key) && !isSafeParam(key)) {
-          hashParamsToDelete.push(key);
+          hashDel.push(key);
         }
       });
-
-      if (hashParamsToDelete.length > 0) {
-        hashParamsToDelete.forEach((key) => hashParams.delete(key));
-        url.hash = hashParams.toString() ? "#" + hashParams.toString() : "";
+      if (hashDel.length > 0) {
+        hashDel.forEach((k) => hp.delete(k));
+        url.hash = hp.toString() ? "#" + hp.toString() : "";
         changed = true;
       }
     }
 
     if (changed) {
-      const cleanUrl = url.toString();
       try {
-        window.history.replaceState(null, "", cleanUrl);
-      } catch (e) {
-        // Ignore replaceState failures (e.g., cross-origin restrictions)
-        console.debug("URLSweep: replaceState failed:", e.message);
+        window.history.replaceState(null, "", url.toString());
+      } catch (_e) {
+        return;
       }
 
-      const totalRemoved = paramsToDelete.length + hashParamsToDelete.length;
-      if (totalRemoved > 0) {
-        chrome.runtime
-          .sendMessage({
-            action: "recordStats",
-            domain: window.location.hostname,
-            count: totalRemoved,
-          })
-          .catch(() => {
-            // Ignore message passing failures (background may be unavailable)
-          });
+      const total = toDelete.length + hashDel.length;
+      if (total > 0) {
+        postMessage({
+          action: "recordStats",
+          domain: window.location.hostname,
+          count: total,
+        }).catch(() => {});
       }
     }
-  } catch (e) {
-    // Ignore invalid URLs
+  } catch (_e) {
+    // Ignore
   }
 }
 
@@ -309,94 +211,67 @@ function cleanCurrentUrl() {
 // Event Listeners
 // ============================================================
 
-// Navigation API - modern SPA routing
+// Navigation API
 if (window.navigation) {
-  window.navigation.addEventListener("navigate", (event) => {
-    if (!isInitialized) return;
-
-    // If the framework is currently transitioning to a new route, wait for it
-    // so we don't abort their fetch/routing pipeline with our replaceState.
-    if (window.navigation.transition) {
-      window.navigation.transition.finished
-        .then(() => setTimeout(cleanCurrentUrl, 100))
-        .catch(() => setTimeout(cleanCurrentUrl, 100));
-    } else {
-      setTimeout(cleanCurrentUrl, 100);
-    }
+  window.navigation.addEventListener("navigate", () => {
+    if (!isInitialized || isGloballyDisabled || isAllowedOnDomain) return;
+    clearTimeout(navigationTimeout);
+    navigationTimeout = setTimeout(cleanCurrentUrl, 200);
   });
 }
 
-// Popstate event - traditional history API navigation
+// Popstate
 window.addEventListener("popstate", () => {
-  if (!isInitialized) return;
+  if (!isInitialized || isGloballyDisabled || isAllowedOnDomain) return;
   setTimeout(cleanCurrentUrl, 50);
 });
 
-// Hashchange event - catch hash-only navigations
+// Hash change
 window.addEventListener("hashchange", () => {
   if (!isInitialized || isGloballyDisabled || isAllowedOnDomain) return;
   setTimeout(cleanCurrentUrl, 50);
 });
 
-// Page visibility - clean up interval when page is hidden
+// Page visibility
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
-    stopUrlChecking();
-  } else if (!isGloballyDisabled && !isAllowedOnDomain && isInitialized) {
-    // Restart interval when page becomes visible again
-    startUrlChecking();
+    stopUrlCheck();
+  } else if (isInitialized && !isGloballyDisabled && !isAllowedOnDomain) {
+    startUrlCheck();
   }
 });
 
-// Page unload - clean up interval
-window.addEventListener("pagehide", () => {
-  stopUrlChecking();
-});
+// Unload cleanup
+window.addEventListener("pagehide", stopUrlCheck);
 
-// Storage change listener for live settings updates
+// Storage listener (debounced)
 chrome.storage.onChanged.addListener((changes, namespace) => {
   if (namespace !== "local") return;
 
-  let needsReinit = false;
-
-  if (changes.isGloballyDisabled) {
-    isGloballyDisabled = changes.isGloballyDisabled.newValue;
-    if (isGloballyDisabled) {
-      stopUrlChecking();
-    } else if (isInitialized && !isAllowedOnDomain) {
-      startUrlChecking();
+  clearTimeout(storageChangeTimeout);
+  storageChangeTimeout = setTimeout(() => {
+    if (changes.isGloballyDisabled) {
+      isGloballyDisabled = changes.isGloballyDisabled.newValue;
+      if (isGloballyDisabled) stopUrlCheck();
+      else if (isInitialized && !isAllowedOnDomain) startUrlCheck();
     }
-  }
 
-  if (changes.allowlist) {
-    const currentDomain = window.location.hostname;
-    const newAllowlist = changes.allowlist.newValue || [];
-    isAllowedOnDomain = checkDomainAllowed(currentDomain, newAllowlist);
-
-    if (isAllowedOnDomain) {
-      stopUrlChecking();
-    } else if (isInitialized && !isGloballyDisabled) {
-      startUrlChecking();
+    if (changes.allowlist) {
+      const host = window.location.hostname;
+      isAllowedOnDomain = checkDomainAllowed(host, changes.allowlist.newValue);
+      if (isAllowedOnDomain) stopUrlCheck();
+      else if (isInitialized && !isGloballyDisabled) startUrlCheck();
     }
-  }
 
-  if (changes.upstreamParams || changes.customTrackers) {
-    needsReinit = true;
-  }
+    if (changes.upstreamParams || changes.customTrackers) {
+      const up = changes.upstreamParams?.newValue || [];
+      const cu = changes.customTrackers?.newValue || [];
+      trackingParams = new Set([...up, ...cu]);
+    }
 
-  if (needsReinit) {
-    // Use storage change values directly to avoid round-trip to background
-    const newUpstream = changes.upstreamParams?.newValue || [];
-    const newCustom = changes.customTrackers?.newValue || [];
-    trackingParams = new Set([...newUpstream, ...newCustom]);
     cleanCurrentUrl();
-  } else {
-    cleanCurrentUrl();
-  }
+  }, 100);
 });
 
-// ============================================================
-// Initialize
-// ============================================================
-
+// Start
 init();

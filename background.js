@@ -17,10 +17,29 @@ const FETCH_INTERVAL_MS = 604800000; // 7 days in milliseconds
 const REFRESH_ALARM_PERIOD_MINUTES = 1440; // 24 hours
 const STATS_FLUSH_INTERVAL_MS = 30000; // 30 seconds
 const STATS_RETENTION_DAYS = 30;
+const FETCH_TIMEOUT_MS = 15000; // 15 second timeout for upstream fetch
+const MAX_FETCH_RETRIES = 3;
 
 // DNR priorities
 const DNR_PRIORITY_TRACKER = 10;
 const DNR_PRIORITY_ALLOWLIST = 100;
+
+// Domains excluded from DNR URL stripping (prevents breaking functionality)
+const EXCLUDED_DNR_DOMAINS = [
+  "youtube.com",
+  "www.youtube.com",
+  "m.youtube.com",
+  "music.youtube.com",
+  "gaming.youtube.com",
+  "kids.youtube.com",
+  "studio.youtube.com",
+  "youtu.be",
+  "docs.google.com",
+  "drive.google.com",
+  "calendar.google.com",
+  "mail.google.com",
+  "accounts.google.com",
+];
 
 // ============================================================
 // Module-level State
@@ -55,6 +74,7 @@ let cachedTrackerList = null;
  * @returns {boolean}
  */
 function isDomainMatch(hostname, pattern) {
+  if (!hostname || !pattern) return false;
   return hostname === pattern || hostname.endsWith("." + pattern);
 }
 
@@ -96,28 +116,46 @@ function invalidateTrackerCache() {
 
 /**
  * Fetch and extract the latest tracking parameters from ClearURLs upstream
+ * with retry logic and timeout.
  */
 async function fetchUpstreamRules() {
-  try {
-    const response = await fetch(CLEARURLS_DATA_URL);
-    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-    const data = await response.json();
+  let lastError = null;
 
-    const providers = data.providers;
-    const exactParams = new Set();
+  for (let attempt = 1; attempt <= MAX_FETCH_RETRIES; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
-    for (const provider of Object.values(providers)) {
-      const allProviderRules = [];
-      if (provider.rules) allProviderRules.push(...provider.rules);
-      if (provider.referralMarketing)
-        allProviderRules.push(...provider.referralMarketing);
+      const response = await fetch(CLEARURLS_DATA_URL, {
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
 
-      for (const rule of allProviderRules) {
-        // Only accept pure explicit string parameters (e.g., "gclid", "fbclid")
-        // Discard any rule that contains Regex structural characters
-        if (/^[a-zA-Z0-9_\-\.]+$/.test(rule)) {
-          // Additional safety check against generic structural tokens
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      if (!data || !data.providers) {
+        throw new Error("Invalid upstream data format");
+      }
+
+      const providers = data.providers;
+      const exactParams = new Set();
+
+      for (const provider of Object.values(providers)) {
+        const allProviderRules = [];
+        if (provider.rules) allProviderRules.push(...provider.rules);
+        if (provider.referralMarketing)
+          allProviderRules.push(...provider.referralMarketing);
+
+        for (const rule of allProviderRules) {
+          // Only accept pure explicit string parameters (e.g., "gclid", "fbclid")
+          // Discard any rule that contains Regex structural characters
           if (
+            typeof rule === "string" &&
+            /^[a-zA-Z0-9_\-\.]+$/.test(rule) &&
             rule.length > 2 &&
             rule !== "amp" &&
             rule !== "html" &&
@@ -127,24 +165,35 @@ async function fetchUpstreamRules() {
           }
         }
       }
-    }
 
-    const upstreamParams = Array.from(exactParams);
-    await chrome.storage.local.set({
-      upstreamParams,
-      lastFetchTime: Date.now(),
-    });
-    console.log(
-      `Successfully fetched ${upstreamParams.length} parameters from ClearURLs.`,
-    );
-    return upstreamParams;
-  } catch (error) {
-    console.error("Failed to fetch ClearURLs data:", error);
-    // If we fail, try to read from storage
-    const { upstreamParams = [] } =
-      await chrome.storage.local.get("upstreamParams");
-    return upstreamParams;
+      const upstreamParams = Array.from(exactParams);
+      await chrome.storage.local.set({
+        upstreamParams,
+        lastFetchTime: Date.now(),
+      });
+      console.log(
+        `Successfully fetched ${upstreamParams.length} parameters from ClearURLs.`,
+      );
+      return upstreamParams;
+    } catch (error) {
+      lastError = error;
+      console.warn(
+        `Attempt ${attempt}/${MAX_FETCH_RETRIES} failed:`,
+        error.message,
+      );
+
+      if (attempt < MAX_FETCH_RETRIES) {
+        // Exponential backoff: 1s, 2s, 4s
+        await new Promise((resolve) =>
+          setTimeout(resolve, 1000 * attempt),
+        );
+      }
+    }
   }
+
+  console.error("Failed to fetch ClearURLs data:", lastError);
+  // Fallback to cached data
+  return getCachedTrackers();
 }
 
 // ============================================================
@@ -192,7 +241,7 @@ async function _updateAllRules(forceFetch = false) {
   let currentId = BASE_TRACKER_RULE_ID_START;
 
   // If globally disabled, skip creating tracker removal rules
-  if (!isGloballyDisabled) {
+  if (!isGloballyDisabled && allTrackers.length > 0) {
     // Generate Tracker Removal Rules
     // Split into chunks due to DNR API limit of `removeParams` per rule
     for (let i = 0; i < allTrackers.length; i += CHUNK_SIZE) {
@@ -208,6 +257,7 @@ async function _updateAllRules(forceFetch = false) {
         },
         condition: {
           resourceTypes: ["main_frame", "sub_frame"],
+          excludedRequestDomains: EXCLUDED_DNR_DOMAINS,
         },
       });
     }
@@ -236,7 +286,6 @@ async function _updateAllRules(forceFetch = false) {
     );
   } catch (error) {
     console.error("Failed to update DNR rules:", error);
-    // Optionally notify user if rules update fails
     if (chrome.runtime.lastError) {
       console.error("DNR API error:", chrome.runtime.lastError.message);
     }
@@ -269,7 +318,7 @@ async function flushStats() {
     statsBufferInspected === 0 &&
     Object.keys(statsBuffer).length === 0
   ) {
-    return; // Nothing to flush
+    return;
   }
 
   try {
@@ -288,12 +337,9 @@ async function flushStats() {
     const dateStr = new Date().toLocaleDateString("en-CA");
     if (!stats[dateStr]) stats[dateStr] = { total: 0, inspected: 0 };
 
-    // Apply buffered per-domain stats
+    // Apply buffered per-domain stats (count = blocked count per domain)
     for (const [domain, count] of Object.entries(statsBuffer)) {
       if (domain === "total" || domain === "inspected") continue;
-
-      stats[dateStr].total += count;
-      stats[dateStr].inspected += count;
 
       if (!stats[dateStr][domain]) stats[dateStr][domain] = 0;
       stats[dateStr][domain] += count;
@@ -317,8 +363,6 @@ async function flushStats() {
     statsBufferTotal = 0;
     statsBufferInspected = 0;
     lastStatsFlush = Date.now();
-
-    console.debug("Stats flushed to storage.");
   } catch (error) {
     console.error("Failed to flush stats:", error);
   }
@@ -333,7 +377,6 @@ async function flushStats() {
 function recordStats(domain, blockedCount = 0, inspectedCount = 0) {
   if (!domain && inspectedCount === 0) return;
 
-  // Accumulate in memory
   statsBufferTotal += blockedCount;
   statsBufferInspected += inspectedCount;
 
@@ -348,46 +391,36 @@ function recordStats(domain, blockedCount = 0, inspectedCount = 0) {
   }
 }
 
-// Flush stats when service worker is about to be suspended
-chrome.alarms.create("flushStats", { periodInMinutes: 5 });
-chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === "flushStats") {
-    flushStats();
-  }
-});
-
 // ============================================================
 // Event Listeners
 // ============================================================
 
 // Extension install/update
 chrome.runtime.onInstalled.addListener(async (details) => {
-  // Force clear the tracking dictionary on install/update to ensure fresh data
   if (details.reason === "install" || details.reason === "update") {
     await chrome.storage.local.remove(["upstreamParams", "lastFetchTime"]);
+    const stored = await chrome.storage.local.get("stats");
+    if (stored.stats) {
+      await chrome.storage.local.set({ stats: { total: 0, inspected: 0 } });
+    }
   }
 
-  const data = await chrome.storage.local.get([
-    "allowlist",
-    "customTrackers",
-    "stats",
-  ]);
+  const data = await chrome.storage.local.get(["allowlist", "customTrackers", "stats"]);
 
-  // Initialize storage with defaults in a single call
   const defaults = {};
   if (!data.allowlist) defaults.allowlist = [];
   if (!data.customTrackers) defaults.customTrackers = [];
-  if (!data.stats) defaults.stats = {};
+  if (!data.stats) defaults.stats = { total: 0, inspected: 0 };
 
   if (Object.keys(defaults).length > 0) {
     await chrome.storage.local.set(defaults);
   }
 
-  // Create alarm to refresh upstream lists daily
-  chrome.alarms.clear("refreshUpstream"); // Prevent duplicates
-  chrome.alarms.create("refreshUpstream", {
-    periodInMinutes: REFRESH_ALARM_PERIOD_MINUTES,
-  });
+  chrome.alarms.clear("refreshUpstream");
+  chrome.alarms.create("refreshUpstream", { periodInMinutes: REFRESH_ALARM_PERIOD_MINUTES });
+
+  chrome.alarms.clear("flushStats");
+  chrome.alarms.create("flushStats", { periodInMinutes: 5 });
 
   await updateAllRules(true);
 });
@@ -401,62 +434,59 @@ chrome.runtime.onStartup.addListener(() => {
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === "refreshUpstream") {
     updateAllRules(true);
+  } else if (alarm.name === "flushStats") {
+    flushStats();
   }
 });
 
-// Storage change listener
+// Storage change listener - debounced
+let storageChangeTimer = null;
 chrome.storage.onChanged.addListener((changes, namespace) => {
-  if (
-    namespace === "local" &&
-    (changes.allowlist || changes.customTrackers || changes.isGloballyDisabled)
-  ) {
-    invalidateTrackerCache();
-    updateAllRules(false);
-  }
+  if (namespace !== "local") return;
+
+  clearTimeout(storageChangeTimer);
+  storageChangeTimer = setTimeout(() => {
+    if (changes.allowlist || changes.customTrackers || changes.isGloballyDisabled) {
+      invalidateTrackerCache();
+      updateAllRules(false);
+    }
+  }, 200);
 });
 
-// Listen to DNR stripped redirects
+// Listen to DNR stripped redirects for stats
+// Requires "webRequest" permission in manifest and "<all_urls>" in host_permissions
 chrome.webRequest.onBeforeRedirect.addListener(
   (details) => {
     try {
       const origUrl = new URL(details.url);
       const redirUrl = new URL(details.redirectUrl);
 
-      // If host and pathname match, it's likely our parameter strip
       if (
         origUrl.hostname === redirUrl.hostname &&
         origUrl.pathname === redirUrl.pathname
       ) {
         const origParams = Array.from(origUrl.searchParams.keys());
         const redirParams = Array.from(redirUrl.searchParams.keys());
-
         const removedCount = origParams.length - redirParams.length;
         if (removedCount > 0) {
           recordStats(origUrl.hostname, removedCount, 0);
         }
       }
-    } catch (e) {
+    } catch (_e) {
       // Ignore invalid URLs
     }
   },
   { urls: ["<all_urls>"] },
+  ["responseHeaders"]
 );
 
 // Message handler
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
   if (request.action === "getState") {
     chrome.storage.local
-      .get([
-        "upstreamParams",
-        "customTrackers",
-        "allowlist",
-        "isGloballyDisabled",
-      ])
+      .get(["upstreamParams", "customTrackers", "allowlist", "isGloballyDisabled"])
       .then((data) => {
-        const allTrackers = mergeTrackers(
-          data.upstreamParams,
-          data.customTrackers,
-        );
+        const allTrackers = mergeTrackers(data.upstreamParams, data.customTrackers);
         const isAllowed = (data.allowlist || []).some((d) =>
           isDomainMatch(request.domain, d),
         );
@@ -466,12 +496,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           isAllowed: isAllowed,
           isGloballyDisabled: data.isGloballyDisabled || false,
         });
+      })
+      .catch((_error) => {
+        sendResponse({
+          trackers: [],
+          isAllowed: false,
+          isGloballyDisabled: false,
+        });
       });
-    return true; // Keep message channel open for async response
+    return true;
   }
 
   if (request.action === "recordStats") {
-    recordStats(request.domain, request.count, 0);
-    // Fire-and-forget, no return true needed
+    recordStats(request.domain, request.count || 0, 0);
+    return true;
   }
+
+  return false;
 });

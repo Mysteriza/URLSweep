@@ -3,7 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>URLSweep</title>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src https://*;" />
+    <title>URLSweep — URL Tracking Remover</title>
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
@@ -59,7 +60,7 @@
           </svg>
         </div>
         <h2 id="domain-name" class="domain-text">Loading...</h2>
-        <p id="status-text" class="status-desc">Active on this site</p>
+        <p id="status-text" class="status-desc">Loading settings...</p>
       </div>
 
       <div class="action-buttons">
@@ -89,7 +90,9 @@
             autocomplete="off"
             spellcheck="false"
           />
-          <button id="btn-purify" class="btn btn-secondary">Purify</button>
+          <button id="btn-purify" class="btn btn-secondary" disabled>
+            Purify
+          </button>
         </div>
       </div>
 
@@ -97,9 +100,17 @@
 
       <div class="stats">
         <span>Blocked on this site:</span>
-        <span class="badge" id="site-stats-counter">0</span>
+        <span class="badge" id="site-stats-counter">-</span>
       </div>
     </div>
+
+    <!-- Toast notification -->
+    <div
+      id="toast"
+      class="toast"
+      role="alert"
+      aria-live="assertive"
+    ></div>
 
     <script src="popup.js"></script>
   </body>

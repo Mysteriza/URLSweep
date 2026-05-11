@@ -49,6 +49,46 @@ document.addEventListener("DOMContentLoaded", async () => {
   let currentStats = { ...stats };
 
   // ============================================================
+  // Notification Helper
+  // ============================================================
+
+  /**
+   * Show a non-blocking notification banner in the options page.
+   * @param {string} message
+   * @param {boolean} isError
+   */
+  function showImportNotification(message, isError = false) {
+    // Remove any existing notification
+    const existing = document.getElementById("import-notification");
+    if (existing) existing.remove();
+
+    const notification = document.createElement("div");
+    notification.id = "import-notification";
+    notification.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      padding: 14px 24px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-family: inherit;
+      z-index: 10000;
+      animation: slideIn 0.3s ease;
+      max-width: 350px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+      ${isError
+        ? "background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5;"
+        : "background: #d1fae5; color: #065f46; border: 1px solid #10b981;"}
+    `;
+    notification.textContent = message;
+    document.body.appendChild(notification);
+
+    setTimeout(() => {
+      if (notification.parentNode) notification.remove();
+    }, 3000);
+  }
+
+  // ============================================================
   // Render Functions
   // ============================================================
 
@@ -330,10 +370,10 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
 
       await saveState();
-      alert("Backup successfully imported!");
+      showImportNotification("Backup successfully imported!");
     } catch (error) {
       console.error("Import error:", error);
-      alert("Invalid backup file formatting.");
+      showImportNotification("Invalid backup file formatting.", true);
     } finally {
       e.target.value = ""; // Reset file input
     }
