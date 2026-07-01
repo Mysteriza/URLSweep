@@ -24,6 +24,17 @@ const MAX_FETCH_RETRIES = 3;
 const DNR_PRIORITY_TRACKER = 10;
 const DNR_PRIORITY_ALLOWLIST = 100;
 
+// Auth-critical parameters that must never be removed by DNR
+// Only parameters that are genuinely part of OAuth/login flows.
+// Referral/tracking parameters MUST remain strippable.
+const AUTH_SAFE_PARAMS = new Set([
+  "code",           // OAuth 2.0 authorization code
+  "callback",       // OAuth callback URL
+  "session_id",     // Session identifier
+  "rtoken",         // Refresh token
+  "email_token",    // Email verification token
+]);
+
 // Domains excluded from DNR URL stripping (prevents breaking functionality)
 const EXCLUDED_DNR_DOMAINS = [
   "youtube.com",
@@ -231,8 +242,11 @@ async function _updateAllRules(forceFetch = false) {
   // Combine custom trackers with upstream, ensuring uniqueness
   const allTrackers = mergeTrackers(upstreamParams, customTrackers);
 
+  // Filter out auth-critical parameters that would break logins
+  const safeTrackers = allTrackers.filter((p) => !AUTH_SAFE_PARAMS.has(p));
+
   // Update cache
-  cachedTrackerList = allTrackers;
+  cachedTrackerList = safeTrackers;
 
   const existingRules = await chrome.declarativeNetRequest.getDynamicRules();
   const removeRuleIds = existingRules.map((rule) => rule.id);
@@ -241,11 +255,11 @@ async function _updateAllRules(forceFetch = false) {
   let currentId = BASE_TRACKER_RULE_ID_START;
 
   // If globally disabled, skip creating tracker removal rules
-  if (!isGloballyDisabled && allTrackers.length > 0) {
+  if (!isGloballyDisabled && safeTrackers.length > 0) {
     // Generate Tracker Removal Rules
     // Split into chunks due to DNR API limit of `removeParams` per rule
-    for (let i = 0; i < allTrackers.length; i += CHUNK_SIZE) {
-      const chunk = allTrackers.slice(i, i + CHUNK_SIZE);
+    for (let i = 0; i < safeTrackers.length; i += CHUNK_SIZE) {
+      const chunk = safeTrackers.slice(i, i + CHUNK_SIZE);
       addRules.push({
         id: currentId++,
         priority: DNR_PRIORITY_TRACKER,
@@ -282,7 +296,7 @@ async function _updateAllRules(forceFetch = false) {
       addRules,
     });
     console.log(
-      `Rules synchronized: ${addRules.length} rules total, covering ${allTrackers.length} parameters and ${allowlist.length} allowed domains.`,
+      `Rules synchronized: ${addRules.length} rules total, covering ${safeTrackers.length} parameters (filtered ${allTrackers.length - safeTrackers.length} auth-safe) and ${allowlist.length} allowed domains.`,
     );
   } catch (error) {
     console.error("Failed to update DNR rules:", error);

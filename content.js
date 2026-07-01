@@ -9,6 +9,16 @@ const SAFE_PARAMS = new Set([
   "v", "t", "list", "index", "pp", "s",
   "q", "search", "page", "sort", "filter",
   "lang", "hl", "gl",
+  // Auth/OAuth parameters that must never be stripped
+  "code", "state", "scope", "redirect_uri", "response_type",
+  "client_id", "client_secret", "grant_type", "access_token",
+  "token_type", "refresh_token", "expires_in", "id_token",
+  "session", "session_id", "token", "rtoken",
+  "auth", "callback", "return_to",
+  "next", "continue", "destination", "goto",
+  "username", "password", "twoFA", "mfa", "verify",
+  "reset_token", "resetToken", "verification_code",
+  "email_token",
 ]);
 
 const AUTH_PATH_PATTERNS = new Set([
