@@ -20,7 +20,7 @@ This extension is currently available for manual installation:
 
 ### Method 1: Download from Releases (Recommended)
 
-1. Go to the [Releases](https://github.com/Mysteriza/URLSweeps/releases) page.
+1. Go to the [Releases](https://github.com/Mysteriza/URLSweep/releases) page.
 2. Download the `URLSweep.zip` file attached to the latest release.
 3. Extract the ZIP file to a permanent folder on your computer.
 4. Open Chrome and navigate to `chrome://extensions/`.
